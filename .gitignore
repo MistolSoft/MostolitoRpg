@@ -1,0 +1,26 @@
+# Build
+firmware/build/
+*.o
+*.obj
+*.elf
+*.bin
+*.map
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Python
+__pycache__/
+*.pyc
+.env/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Legacy (si queda)
+firmware/_legacy/
+firmware/_old_backup/
