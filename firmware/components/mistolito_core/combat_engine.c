@@ -1,18 +1,11 @@
 #include "combat_engine.h"
 #include "rules.h"
-#include "esp_timer.h"
-#include "esp_random.h"
+#include "storage_task.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include <string.h>
 
 static const char *TAG = "COMBAT";
-
-static const char* ENEMY_NAMES[] = {
-    "Slime", "Goblin", "Skeleton", "Bat", "Spider",
-    "Wolf", "Orc", "Zombie", "Harpy", "Troll",
-    "Golem", "Demon", "Dragon", "Wraith", "Basilisk"
-};
-#define ENEMY_COUNT (sizeof(ENEMY_NAMES) / sizeof(ENEMY_NAMES[0]))
 
 void combat_engine_init(combat_state_t *combat)
 {
@@ -25,29 +18,28 @@ void combat_engine_start_encounter(encounter_t *encounter, uint8_t pet_level)
     memset(encounter, 0, sizeof(encounter_t));
 
     encounter->count = 1;
-    if (pet_level >= 5) encounter->count = 1 + (pet_level / 5);
+    if (pet_level >= 40) encounter->count = 1 + ((pet_level - 35) / 5);
     if (encounter->count > MAX_ENEMIES_PER_ENCOUNTER) {
         encounter->count = MAX_ENEMIES_PER_ENCOUNTER;
     }
 
     for (uint8_t i = 0; i < encounter->count; i++) {
         enemy_t *enemy = &encounter->enemies[i];
-
-        uint8_t enemy_idx = (uint8_t)(esp_random() % ENEMY_COUNT);
-        strncpy(enemy->name, ENEMY_NAMES[enemy_idx], ENEMY_NAME_MAX_LEN - 1);
-        enemy->name[ENEMY_NAME_MAX_LEN - 1] = '\0';
-
-        enemy->hp_max = combat_engine_calc_enemy_hp(pet_level);
-        enemy->hp = enemy->hp_max;
-        enemy->ac = combat_engine_calc_enemy_ac(pet_level);
-        enemy->attack_bonus = 0;
-        enemy->damage_dice = 4;
-        enemy->damage_bonus = 1;
-        enemy->level = pet_level;
-        enemy->alive = true;
-
-        uint16_t base_exp = (uint16_t)(enemy->hp_max / 4);
-        enemy->exp_reward = base_exp + (uint8_t)(esp_random() % 20) + 1;
+        
+        uint8_t enemy_id = storage_get_random_enemy_id(pet_level);
+        
+        if (!storage_get_enemy_data(enemy_id, pet_level, enemy)) {
+            enemy->hp_max = 20 + pet_level * 10;
+            enemy->hp = enemy->hp_max;
+            enemy->ac = 8 + (pet_level / 5);
+            enemy->damage_dice = 4;
+            enemy->damage_bonus = 0;
+            enemy->attack_bonus = 2;
+            enemy->exp_reward = 15 + pet_level * 5;
+            strncpy(enemy->name, "Unknown", ENEMY_NAME_MAX_LEN - 1);
+            enemy->level = pet_level;
+            enemy->alive = true;
+        }
     }
 
     encounter->active_idx = 0;
@@ -62,7 +54,7 @@ uint16_t combat_engine_calc_enemy_hp(uint8_t pet_level)
 
 uint8_t combat_engine_calc_enemy_ac(uint8_t pet_level)
 {
-    uint8_t base_ac = 8;
+    uint8_t base_ac = 6;
     uint8_t ac_per_level = 1;
     uint8_t ac = base_ac + (pet_level / 2) * ac_per_level;
     if (ac > 15) ac = 15;
@@ -74,12 +66,10 @@ void combat_engine_player_attack(pet_t *pet, enemy_t *target, combat_state_t *co
     int8_t dex_mod = rules_get_modifier(pet->dex);
     int16_t attack_roll = (int16_t)rules_roll_d20() + dex_mod;
 
-    ESP_LOGI(TAG, "Player attack: roll=%d (d20+%d) vs AC=%d", attack_roll, dex_mod, target->ac);
-
     if (attack_roll >= target->ac) {
         uint8_t base_damage = 0;
         uint8_t dice_count = 3 + pet->bonuses.extra_dice;
-        
+
         switch (pet->profession) {
         case PROF_WARRIOR:
             base_damage = rules_roll_multiple(dice_count, 6);
@@ -102,14 +92,14 @@ void combat_engine_player_attack(pet_t *pet, enemy_t *target, combat_state_t *co
             break;
         }
         default:
-            base_damage = rules_roll_dice(15) + 1;
+            base_damage = rules_roll_multiple(pet->combat.dice_count, pet->combat.damage_dice) + pet->combat.damage_bonus;
             break;
         }
-        
+
         int8_t str_mod = rules_get_modifier(pet->str);
         int16_t damage = base_damage + str_mod + pet->bonuses.min_damage;
         if (damage < 1) damage = 1;
-        
+
         target->hp -= damage;
         if (target->hp < 0) target->hp = 0;
 
@@ -117,39 +107,60 @@ void combat_engine_player_attack(pet_t *pet, enemy_t *target, combat_state_t *co
         combat->player_hit = true;
         combat->turn_count++;
 
-        ESP_LOGI(TAG, "HIT! Damage=%d, Enemy HP: %d/%d", damage, target->hp, target->hp_max);
-
         if (target->hp <= 0) {
             target->alive = false;
-            ESP_LOGI(TAG, "Enemy died!");
         }
     } else {
         combat->last_player_damage = 0;
         combat->player_hit = false;
-        ESP_LOGI(TAG, "MISS!");
     }
 }
 
 void combat_engine_enemy_attack(enemy_t *enemy, pet_t *pet, combat_state_t *combat)
 {
-    int8_t enemy_mod = rules_get_modifier(enemy->ac);
-    int8_t pet_ac = 10 + rules_get_modifier(pet->dex);
+    int8_t enemy_mod = enemy->attack_bonus;
+    int8_t pet_ac = pet->combat.base_ac + rules_get_modifier(pet->dex);
     int16_t attack_roll = (int16_t)rules_roll_d20() + enemy_mod;
-    
+
     if (attack_roll >= pet_ac) {
         uint8_t damage = rules_roll_dice(enemy->damage_dice) + enemy->damage_bonus;
         pet->hp -= damage;
         if (pet->hp < 0) pet->hp = 0;
-        
+
         combat->last_enemy_damage = damage;
         combat->enemy_hit = true;
-        
+
         if (pet->hp <= 0) {
             pet->is_alive = false;
         }
     } else {
         combat->last_enemy_damage = 0;
         combat->enemy_hit = false;
+    }
+}
+
+void combat_engine_log_round(pet_t *pet, enemy_t *enemy, combat_state_t *combat)
+{
+    if (combat->player_hit) {
+        if (enemy->alive) {
+            ESP_LOGI(TAG, "[ROUND %d] Pet hit %s for %d dmg (%d/%d HP) | %s hit Pet for %d dmg (%d/%d HP)",
+                     combat->turn_count, enemy->name, combat->last_player_damage,
+                     enemy->hp, enemy->hp_max,
+                     enemy->name, combat->last_enemy_damage,
+                     pet->hp, pet->hp_max);
+        } else {
+            ESP_LOGI(TAG, "[ROUND %d] Pet killed %s with %d dmg! Pet HP: %d/%d",
+                     combat->turn_count, enemy->name, combat->last_player_damage,
+                     pet->hp, pet->hp_max);
+        }
+    } else {
+        if (combat->enemy_hit) {
+            ESP_LOGI(TAG, "[ROUND %d] Pet missed | %s hit Pet for %d dmg (%d/%d HP)",
+                     combat->turn_count, enemy->name, combat->last_enemy_damage,
+                     pet->hp, pet->hp_max);
+        } else {
+            ESP_LOGI(TAG, "[ROUND %d] Both missed", combat->turn_count);
+        }
     }
 }
 
@@ -199,10 +210,15 @@ void combat_engine_reset_pet_on_death(pet_t *pet)
     memcpy(saved_name, pet->name, PET_NAME_MAX_LEN - 1);
     saved_name[PET_NAME_MAX_LEN - 1] = '\0';
 
+    uint32_t saved_dp = pet->dp;
+
     memset(pet, 0, sizeof(pet_t));
 
     memcpy(pet->name, saved_name, PET_NAME_MAX_LEN - 1);
     pet->name[PET_NAME_MAX_LEN - 1] = '\0';
+    
+    pet->dp = saved_dp;
+    
     pet->level = 1;
     pet->hp_max = BASE_PET_HP;
     pet->hp = BASE_PET_HP;
@@ -214,7 +230,8 @@ void combat_engine_reset_pet_on_death(pet_t *pet)
     pet->intel = 10;
     pet->wis = 10;
     pet->cha = 10;
+    pet->profession = PROF_NONE;
     pet->is_alive = true;
 
-    ESP_LOGI(TAG, "Pet resurrected: %s", pet->name);
+    ESP_LOGI(TAG, "Pet resurrected: %s (DP preserved: %lu)", pet->name, (unsigned long)pet->dp);
 }

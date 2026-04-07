@@ -41,12 +41,14 @@ static lv_obj_t *exp_label = NULL;
 static lv_obj_t *energy_label = NULL;
 static lv_obj_t *dp_label = NULL;
 static lv_obj_t *profession_label = NULL;
+static lv_obj_t *hp_label = NULL;
+static lv_obj_t *stats_header = NULL;
 static lv_obj_t *stats_row = NULL;
 
 static lv_style_t style_box;
 
 static const char* state_str[] = {"INIT", "SEARCHING", "COMBAT", "VICTORY", "LEVELUP", "RESTING", "DEAD"};
-static const char* prof_str[] = {"Novice", "Warrior", "Mage", "Rogue"};
+static const char* prof_str[] = {"NOV", "WAR", "MAG", "ROG"};
 
 static void init_styles(void)
 {
@@ -175,41 +177,53 @@ static void create_game_screen(void)
     lv_obj_set_style_text_font(pet_name_label, &lv_font_montserrat_14, 0);
     lv_obj_set_pos(pet_name_label, 5, 2);
 
-    level_label = lv_label_create(stats_bg);
-    lv_label_set_text(level_label, "Lv.1");
-    lv_obj_set_style_text_color(level_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(level_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_pos(level_label, 75, 2);
-
-    exp_label = lv_label_create(stats_bg);
-    lv_label_set_text(exp_label, "XP:0%");
-    lv_obj_set_style_text_color(exp_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(exp_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_pos(exp_label, 115, 2);
-
-    energy_label = lv_label_create(stats_bg);
-    lv_label_set_text(energy_label, "EN:10");
-    lv_obj_set_style_text_color(energy_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(energy_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_pos(energy_label, 170, 2);
-
-    dp_label = lv_label_create(stats_bg);
-    lv_label_set_text(dp_label, "DP:0");
-    lv_obj_set_style_text_color(dp_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(dp_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_pos(dp_label, 225, 2);
-
     profession_label = lv_label_create(stats_bg);
-    lv_label_set_text(profession_label, "NOVICE");
+    lv_label_set_text(profession_label, "NOV");
     lv_obj_set_style_text_color(profession_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(profession_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_pos(profession_label, 5, 22);
+    lv_obj_set_pos(profession_label, 90, 2);
+
+    level_label = lv_label_create(stats_bg);
+    lv_label_set_text(level_label, "Lv1");
+    lv_obj_set_style_text_color(level_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(level_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(level_label, 125, 2);
+
+    exp_label = lv_label_create(stats_bg);
+    lv_label_set_text(exp_label, "XP0%");
+    lv_obj_set_style_text_color(exp_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(exp_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(exp_label, 155, 2);
+
+    dp_label = lv_label_create(stats_bg);
+    lv_label_set_text(dp_label, "DP0");
+    lv_obj_set_style_text_color(dp_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(dp_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(dp_label, 200, 2);
+
+    hp_label = lv_label_create(stats_bg);
+    lv_label_set_text(hp_label, "HP100%");
+    lv_obj_set_style_text_color(hp_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(hp_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(hp_label, 5, 20);
+
+    energy_label = lv_label_create(stats_bg);
+    lv_label_set_text(energy_label, "EN100%");
+    lv_obj_set_style_text_color(energy_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(energy_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(energy_label, 65, 20);
+
+    stats_header = lv_label_create(stats_bg);
+    lv_label_set_text(stats_header, "Str Dex Con Int Wis Cha");
+    lv_obj_set_style_text_color(stats_header, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_font(stats_header, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(stats_header, 5, 40);
 
     stats_row = lv_label_create(stats_bg);
-    lv_label_set_text(stats_row, "Str 10 Dex 10 Con 10 Int 10 Wis 10 Cha 10");
+    lv_label_set_text(stats_row, " 10  10  10  10  10  10");
     lv_obj_set_style_text_color(stats_row, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(stats_row, &lv_font_montserrat_14, 0);
-    lv_obj_set_pos(stats_row, 5, 42);
+    lv_obj_set_pos(stats_row, 5, 58);
 
     ESP_LOGI(TAG, "GAME screen created");
 }
@@ -245,25 +259,30 @@ void screens_update(game_snapshot_t *snap)
 
     lv_label_set_text(pet_name_label, snap->pet.name);
 
-    lv_snprintf(buf, sizeof(buf), "Lv.%d", snap->pet.level);
-    lv_label_set_text(level_label, buf);
-
-    uint8_t xp_pct = snap->pet.exp_next > 0 ? (snap->pet.exp * 100) / snap->pet.exp_next : 0;
-    lv_snprintf(buf, sizeof(buf), "XP:%d%%", xp_pct);
-    lv_label_set_text(exp_label, buf);
-
-    lv_snprintf(buf, sizeof(buf), "EN:%d", snap->pet.energy);
-    lv_label_set_text(energy_label, buf);
-
-    lv_snprintf(buf, sizeof(buf), "DP:%lu", (unsigned long)snap->pet.dp);
-    lv_label_set_text(dp_label, buf);
-
     const char *prof_name = (snap->pet.profession < 4) ? prof_str[snap->pet.profession] : "???";
     lv_label_set_text(profession_label, prof_name);
 
-    lv_snprintf(buf, sizeof(buf), "Str %d Dex %d Con %d Int %d Wis %d Cha %d",
-        snap->pet.str, snap->pet.dex, snap->pet.con,
-        snap->pet.intel, snap->pet.wis, snap->pet.cha);
+    lv_snprintf(buf, sizeof(buf), "Lv%d", snap->pet.level);
+    lv_label_set_text(level_label, buf);
+
+    uint8_t xp_pct = snap->pet.exp_next > 0 ? (snap->pet.exp * 100) / snap->pet.exp_next : 0;
+    lv_snprintf(buf, sizeof(buf), "XP%d%%", xp_pct);
+    lv_label_set_text(exp_label, buf);
+
+    lv_snprintf(buf, sizeof(buf), "DP%lu", (unsigned long)snap->pet.dp);
+    lv_label_set_text(dp_label, buf);
+
+    uint8_t hp_pct = snap->pet.hp_max > 0 ? (snap->pet.hp * 100) / snap->pet.hp_max : 0;
+    lv_snprintf(buf, sizeof(buf), "HP%d%%", hp_pct);
+    lv_label_set_text(hp_label, buf);
+
+    uint8_t en_pct = snap->pet.energy_max > 0 ? (snap->pet.energy * 100) / snap->pet.energy_max : 0;
+    lv_snprintf(buf, sizeof(buf), "EN%d%%", en_pct);
+    lv_label_set_text(energy_label, buf);
+
+    lv_snprintf(buf, sizeof(buf), " %2d   %2d   %2d   %2d   %2d   %2d",
+                snap->pet.str, snap->pet.dex, snap->pet.con,
+                snap->pet.intel, snap->pet.wis, snap->pet.cha);
     lv_label_set_text(stats_row, buf);
 
     if (snap->encounter.count > 0 && snap->encounter.enemies[0].alive) {

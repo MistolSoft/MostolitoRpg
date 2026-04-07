@@ -1,5 +1,6 @@
 #include "game_coordinator.h"
 #include "combat_engine.h"
+#include "rest_engine.h"
 #include "events.h"
 #include "workers.h"
 #include "storage_task.h"
@@ -77,12 +78,6 @@ static void emit_level_up_event(uint8_t level)
     events_send(&evt);
 }
 
-static void emit_energy_event(uint8_t current)
-{
-    game_event_t evt = { .type = EVT_ENERGY_CHANGED, .data.energy.current = current, .data.energy.max = MAX_ENERGY };
-    events_send(&evt);
-}
-
 static void emit_enemy_spawned_event(void)
 {
     game_event_t evt = { .type = EVT_ENEMY_SPAWNED };
@@ -109,17 +104,15 @@ void game_coordinator_start(void)
 
     strncpy(g_snapshot.pet.name, "Mistolito", PET_NAME_MAX_LEN);
     g_snapshot.pet.level = 1;
-    g_snapshot.pet.hp_max = BASE_PET_HP;
-    g_snapshot.pet.hp = BASE_PET_HP;
-    g_snapshot.pet.energy = MAX_ENERGY;
-    g_snapshot.pet.energy_max = MAX_ENERGY;
-    g_snapshot.pet.exp_next = calc_exp_for_level(1);
+    g_snapshot.pet.profession = PROF_NONE;
     g_snapshot.pet.str = 10;
     g_snapshot.pet.dex = 10;
     g_snapshot.pet.con = 10;
     g_snapshot.pet.intel = 10;
     g_snapshot.pet.wis = 10;
     g_snapshot.pet.cha = 10;
+    storage_apply_profession_data(&g_snapshot.pet, PROF_NONE);
+    g_snapshot.pet.exp_next = calc_exp_for_level(1);
     g_snapshot.pet.is_alive = true;
 
     combat_engine_init(&g_snapshot.combat);
@@ -244,6 +237,7 @@ static void handle_combat_state(void)
 
         case CS_ROUND_END:
             combat_engine_apply_round_effects(&g_snapshot.pet, &g_snapshot.encounter);
+            combat_engine_log_round(&g_snapshot.pet, &g_snapshot.encounter.enemies[0], &g_snapshot.combat);
             g_snapshot.combat.round++;
             g_snapshot.combat.phase = CS_CHECK_VICTORY;
             break;
@@ -251,16 +245,29 @@ static void handle_combat_state(void)
         case CS_CHECK_VICTORY:
             if (combat_engine_all_enemies_dead(&g_snapshot.encounter)) {
                 uint32_t total_exp = 0;
+                uint8_t enemies_dead = 0;
                 for (uint8_t i = 0; i < g_snapshot.encounter.count; i++) {
                     total_exp += g_snapshot.encounter.enemies[i].exp_reward;
+                    enemies_dead++;
                 }
                 g_snapshot.pet.exp += total_exp;
-                g_snapshot.pet.enemies_killed += g_snapshot.encounter.count;
-                g_snapshot.pet.dirty_flags |= PET_DIRTY_EXP;
+                g_snapshot.pet.enemies_killed += enemies_dead;
+                
+                for (uint8_t i = 0; i < enemies_dead; i++) {
+                    if (rules_random_chance(DP_GAIN_CHANCE)) {
+                        g_snapshot.pet.dp++;
+                        ESP_LOGI(TAG, "Gained 1 DP! (total: %lu)", (unsigned long)g_snapshot.pet.dp);
+                    }
+                }
+                
+                g_snapshot.pet.dirty_flags |= PET_DIRTY_EXP | PET_DIRTY_DP;
                 emit_victory_event(total_exp);
 
                 if (g_snapshot.pet.exp >= g_snapshot.pet.exp_next) {
                     transition_to(GS_LEVELUP);
+                } else if (rest_should_rest(g_snapshot.pet.hp, g_snapshot.pet.hp_max, g_snapshot.pet.rest.hp_rest_threshold)) {
+                    rest_init(&g_snapshot.rest, &g_snapshot.pet);
+                    transition_to(GS_RESTING);
                 } else {
                     transition_to(GS_VICTORY);
                 }
@@ -285,23 +292,21 @@ void game_coordinator_task(void *arg)
         switch (g_snapshot.state) {
             case GS_INIT:
                 if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100))) {
-                    if (!storage_load_pet(&g_snapshot.pet)) {
-                        strncpy(g_snapshot.pet.name, "Mistolito", PET_NAME_MAX_LEN);
-                        g_snapshot.pet.level = 1;
-                        g_snapshot.pet.hp_max = BASE_PET_HP;
-                        g_snapshot.pet.hp = BASE_PET_HP;
-                        g_snapshot.pet.energy = MAX_ENERGY;
-                        g_snapshot.pet.energy_max = MAX_ENERGY;
-                        g_snapshot.pet.exp_next = calc_exp_for_level(1);
-                        g_snapshot.pet.str = 10;
-                        g_snapshot.pet.dex = 10;
-                        g_snapshot.pet.con = 10;
-                        g_snapshot.pet.intel = 10;
-                        g_snapshot.pet.wis = 10;
-                        g_snapshot.pet.cha = 10;
-                        g_snapshot.pet.dirty_flags = 0xFF;
-                        storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-                    }
+        if (!storage_load_pet(&g_snapshot.pet)) {
+            strncpy(g_snapshot.pet.name, "Mistolito", PET_NAME_MAX_LEN);
+            g_snapshot.pet.level = 1;
+            g_snapshot.pet.profession = PROF_NONE;
+            g_snapshot.pet.str = 10;
+            g_snapshot.pet.dex = 10;
+            g_snapshot.pet.con = 10;
+            g_snapshot.pet.intel = 10;
+            g_snapshot.pet.wis = 10;
+            g_snapshot.pet.cha = 10;
+            storage_apply_profession_data(&g_snapshot.pet, PROF_NONE);
+            g_snapshot.pet.exp_next = calc_exp_for_level(1);
+            g_snapshot.pet.dirty_flags = 0xFF;
+            storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+        }
 
                     g_snapshot.pet.exp_next = calc_exp_for_level(g_snapshot.pet.level);
 
@@ -333,67 +338,75 @@ void game_coordinator_task(void *arg)
                 vTaskDelay(pdMS_TO_TICKS(100));
                 break;
 
-            case GS_VICTORY:
-                storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-                g_snapshot.pet.dirty_flags = 0;
-                vTaskDelay(pdMS_TO_TICKS(2000));
-                if (g_snapshot.pet.energy > 0) {
-                    resume_and_notify(g_search_task_handle);
-                    transition_to(GS_SEARCHING);
-                } else {
-                    resume_and_notify(g_rest_task_handle);
-                    transition_to(GS_RESTING);
-                }
-                break;
-
-            case GS_LEVELUP:
-                process_level_up();
-                vTaskDelay(pdMS_TO_TICKS(2000));
-                if (g_snapshot.pet.energy > 0) {
-                    resume_and_notify(g_search_task_handle);
-                    transition_to(GS_SEARCHING);
-                } else {
-                    resume_and_notify(g_rest_task_handle);
-                    transition_to(GS_RESTING);
-                }
-                break;
-
-            case GS_RESTING:
-                if (g_rest_task_handle != NULL) {
-                    vTaskResume(g_rest_task_handle);
-                    xTaskNotify(g_rest_task_handle, 0, eNoAction);
-
-                    uint32_t result = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));
-                    if (result > 0) {
-                        g_snapshot.pet.energy++;
-                        g_snapshot.pet.dirty_flags |= PET_DIRTY_ENERGY;
-                        emit_energy_event(g_snapshot.pet.energy);
-
-                        if (g_snapshot.pet.energy >= MAX_ENERGY) {
-                            vTaskSuspend(g_rest_task_handle);
-                            storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-                            g_snapshot.pet.dirty_flags = 0;
-                            resume_and_notify(g_search_task_handle);
-                            transition_to(GS_SEARCHING);
-                        }
-                    }
-                }
-                break;
-
-            case GS_DEAD:
-                ESP_LOGI(TAG, "Pet died! Resetting...");
-                if (g_snapshot_mutex && xSemaphoreTake(g_snapshot_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-                    combat_engine_reset_pet_on_death(&g_snapshot.pet);
-                    g_snapshot.pet.exp_next = calc_exp_for_level(1);
-                    g_snapshot.pet.dirty_flags = 0xFF;
-                    xSemaphoreGive(g_snapshot_mutex);
-                }
-                storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-                g_snapshot.pet.dirty_flags = 0;
-                vTaskDelay(pdMS_TO_TICKS(2000));
+        case GS_VICTORY:
+            storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+            g_snapshot.pet.dirty_flags = 0;
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            if (rest_should_rest(g_snapshot.pet.hp, g_snapshot.pet.hp_max, g_snapshot.pet.rest.hp_rest_threshold)) {
+                rest_init(&g_snapshot.rest, &g_snapshot.pet);
+                transition_to(GS_RESTING);
+            } else if (g_snapshot.pet.energy > 0) {
                 resume_and_notify(g_search_task_handle);
                 transition_to(GS_SEARCHING);
-                break;
+            } else {
+                rest_init(&g_snapshot.rest, &g_snapshot.pet);
+                transition_to(GS_RESTING);
+            }
+            break;
+
+        case GS_LEVELUP:
+            process_level_up();
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            if (rest_should_rest(g_snapshot.pet.hp, g_snapshot.pet.hp_max, g_snapshot.pet.rest.hp_rest_threshold)) {
+                rest_init(&g_snapshot.rest, &g_snapshot.pet);
+                transition_to(GS_RESTING);
+            } else if (g_snapshot.pet.energy > 0) {
+                resume_and_notify(g_search_task_handle);
+                transition_to(GS_SEARCHING);
+            } else {
+                rest_init(&g_snapshot.rest, &g_snapshot.pet);
+                transition_to(GS_RESTING);
+            }
+            break;
+
+        case GS_RESTING:
+            if (g_rest_task_handle != NULL) {
+                vTaskResume(g_rest_task_handle);
+                xTaskNotify(g_rest_task_handle, 0, eNoAction);
+
+                uint32_t result = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));
+                if (result > 0) {
+                    bool hp_recovering = rest_tick_hp(&g_snapshot.pet, &g_snapshot.rest);
+                    bool energy_recovering = rest_tick_energy(&g_snapshot.pet, &g_snapshot.rest);
+
+                    g_snapshot.pet.dirty_flags |= PET_DIRTY_HP | PET_DIRTY_ENERGY;
+
+                    if (!hp_recovering && !energy_recovering) {
+                        vTaskSuspend(g_rest_task_handle);
+                        storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+                        g_snapshot.pet.dirty_flags = 0;
+                        resume_and_notify(g_search_task_handle);
+                        transition_to(GS_SEARCHING);
+                    }
+                }
+            }
+            break;
+
+    case GS_DEAD:
+        ESP_LOGI(TAG, "Pet died! Resetting...");
+        if (g_snapshot_mutex && xSemaphoreTake(g_snapshot_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            combat_engine_reset_pet_on_death(&g_snapshot.pet);
+            storage_apply_profession_data(&g_snapshot.pet, PROF_NONE);
+            g_snapshot.pet.exp_next = calc_exp_for_level(1);
+            g_snapshot.pet.dirty_flags = 0xFF;
+            xSemaphoreGive(g_snapshot_mutex);
+        }
+        storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+        g_snapshot.pet.dirty_flags = 0;
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        resume_and_notify(g_search_task_handle);
+        transition_to(GS_SEARCHING);
+        break;
 
             default:
                 transition_to(GS_INIT);

@@ -1,0 +1,375 @@
+{
+    "config": {
+        "exp_base": 50,
+        "exp_linear": 50,
+        "exp_multiplier": 1.15,
+        "hp_bonus_base": 5,
+        "hp_bonus_step": 5,
+        "cycle_length": 20,
+        "cycle_multiplier": 0.5,
+        "dp_gain_chance": 30,
+        "profession_unlock_dp": 10,
+        "rest_base_ticks": 5,
+        "rest_dice_sides": 5,
+        "rest_recovery_percent": 10
+    },
+    "professions": [
+        {
+            "id": 0,
+            "name": "Novice",
+            "hp_rest_threshold": 60,
+            "recovery_chance": 75,
+            "base_hp": 20,
+            "base_energy": 10,
+            "base_ac": 12,
+            "damage_dice": 15,
+            "damage_bonus": 1,
+            "dice_count": 1
+        },
+        {
+            "id": 1,
+            "name": "Warrior",
+            "req": {"str": 14, "con": 12},
+            "dp_cost": 10,
+            "hp_rest_threshold": 30,
+            "recovery_chance": 50,
+            "base_hp": 25,
+            "base_energy": 10,
+            "base_ac": 14,
+            "damage_dice": 6,
+            "damage_bonus": 0,
+            "dice_count": 3
+        },
+        {
+            "id": 2,
+            "name": "Mage",
+            "req": {"int": 14, "wis": 12},
+            "dp_cost": 10,
+            "hp_rest_threshold": 60,
+            "recovery_chance": 55,
+            "base_hp": 16,
+            "base_energy": 12,
+            "base_ac": 10,
+            "damage_dice": 20,
+            "damage_bonus": 0,
+            "dice_count": 1
+        },
+        {
+            "id": 3,
+            "name": "Rogue",
+            "req": {"dex": 14, "int": 10},
+            "dp_cost": 10,
+            "hp_rest_threshold": 50,
+            "recovery_chance": 60,
+            "base_hp": 18,
+            "base_energy": 10,
+            "base_ac": 12,
+            "damage_dice": 4,
+            "damage_bonus": 0,
+            "dice_count": 3
+        }
+    ],
+    "enemies": [
+        {
+            "id": 0,
+            "name": "Slime",
+            "tier": 1,
+            "base_hp": 12,
+            "hp_per_level": 8,
+            "base_ac": 8,
+            "ac_per_level": 0,
+            "damage_dice": 3,
+            "damage_bonus": 0,
+            "attack_bonus": 2,
+            "exp_base": 15,
+            "exp_per_level": 5
+        },
+        {
+            "id": 1,
+            "name": "Goblin",
+            "tier": 1,
+            "base_hp": 7,
+            "hp_per_level": 10,
+            "base_ac": 15,
+            "ac_per_level": 0,
+            "damage_dice": 6,
+            "damage_bonus": 2,
+            "attack_bonus": 4,
+            "exp_base": 20,
+            "exp_per_level": 8
+        },
+        {
+            "id": 2,
+            "name": "Skeleton",
+            "tier": 1,
+            "base_hp": 13,
+            "hp_per_level": 12,
+            "base_ac": 13,
+            "ac_per_level": 1,
+            "damage_dice": 6,
+            "damage_bonus": 2,
+            "attack_bonus": 4,
+            "exp_base": 25,
+            "exp_per_level": 10
+        },
+        {
+            "id": 3,
+            "name": "Giant Rat",
+            "tier": 1,
+            "base_hp": 7,
+            "hp_per_level": 6,
+            "base_ac": 12,
+            "ac_per_level": 0,
+            "damage_dice": 4,
+            "damage_bonus": 2,
+            "attack_bonus": 4,
+            "exp_base": 10,
+            "exp_per_level": 5
+        },
+        {
+            "id": 4,
+            "name": "Orc",
+            "tier": 2,
+            "base_hp": 15,
+            "hp_per_level": 15,
+            "base_ac": 13,
+            "ac_per_level": 1,
+            "damage_dice": 12,
+            "damage_bonus": 3,
+            "attack_bonus": 5,
+            "exp_base": 50,
+            "exp_per_level": 15
+        },
+        {
+            "id": 5,
+            "name": "Zombie",
+            "tier": 2,
+            "base_hp": 22,
+            "hp_per_level": 18,
+            "base_ac": 8,
+            "ac_per_level": 0,
+            "damage_dice": 6,
+            "damage_bonus": 1,
+            "attack_bonus": 3,
+            "exp_base": 40,
+            "exp_per_level": 12
+        },
+        {
+            "id": 6,
+            "name": "Bugbear",
+            "tier": 2,
+            "base_hp": 27,
+            "hp_per_level": 20,
+            "base_ac": 16,
+            "ac_per_level": 1,
+            "damage_dice": 8,
+            "damage_bonus": 2,
+            "attack_bonus": 6,
+            "exp_base": 70,
+            "exp_per_level": 20
+        },
+        {
+            "id": 7,
+            "name": "Wolf",
+            "tier": 1,
+            "base_hp": 11,
+            "hp_per_level": 10,
+            "base_ac": 13,
+            "ac_per_level": 1,
+            "damage_dice": 6,
+            "damage_bonus": 2,
+            "attack_bonus": 4,
+            "exp_base": 20,
+            "exp_per_level": 8
+        },
+        {
+            "id": 8,
+            "name": "Spider",
+            "tier": 1,
+            "base_hp": 8,
+            "hp_per_level": 8,
+            "base_ac": 14,
+            "ac_per_level": 1,
+            "damage_dice": 6,
+            "damage_bonus": 1,
+            "attack_bonus": 4,
+            "exp_base": 15,
+            "exp_per_level": 6
+        },
+        {
+            "id": 9,
+            "name": "Harpy",
+            "tier": 3,
+            "base_hp": 38,
+            "hp_per_level": 25,
+            "base_ac": 11,
+            "ac_per_level": 1,
+            "damage_dice": 6,
+            "damage_bonus": 2,
+            "attack_bonus": 5,
+            "exp_base": 100,
+            "exp_per_level": 30
+        },
+        {
+            "id": 10,
+            "name": "Troll",
+            "tier": 3,
+            "base_hp": 84,
+            "hp_per_level": 40,
+            "base_ac": 15,
+            "ac_per_level": 1,
+            "damage_dice": 6,
+            "damage_bonus": 6,
+            "attack_bonus": 7,
+            "exp_base": 180,
+            "exp_per_level": 50
+        },
+        {
+            "id": 11,
+            "name": "Golem",
+            "tier": 4,
+            "base_hp": 60,
+            "hp_per_level": 50,
+            "base_ac": 17,
+            "ac_per_level": 1,
+            "damage_dice": 8,
+            "damage_bonus": 5,
+            "attack_bonus": 8,
+            "exp_base": 250,
+            "exp_per_level": 70
+        },
+        {
+            "id": 12,
+            "name": "Demon",
+            "tier": 4,
+            "base_hp": 70,
+            "hp_per_level": 60,
+            "base_ac": 15,
+            "ac_per_level": 1,
+            "damage_dice": 10,
+            "damage_bonus": 4,
+            "attack_bonus": 7,
+            "exp_base": 300,
+            "exp_per_level": 80
+        },
+        {
+            "id": 13,
+            "name": "Dragon",
+            "tier": 5,
+            "base_hp": 100,
+            "hp_per_level": 80,
+            "base_ac": 18,
+            "ac_per_level": 1,
+            "damage_dice": 12,
+            "damage_bonus": 8,
+            "attack_bonus": 10,
+            "exp_base": 500,
+            "exp_per_level": 100
+        },
+        {
+            "id": 14,
+            "name": "Basilisk",
+            "tier": 4,
+            "base_hp": 75,
+            "hp_per_level": 55,
+            "base_ac": 15,
+            "ac_per_level": 1,
+            "damage_dice": 10,
+            "damage_bonus": 5,
+            "attack_bonus": 6,
+            "exp_base": 280,
+            "exp_per_level": 75
+        }
+    ],
+    "enemy_tiers": [
+        {"tier": 1, "min_level": 1, "max_level": 10},
+        {"tier": 2, "min_level": 5, "max_level": 20},
+        {"tier": 3, "min_level": 15, "max_level": 35},
+        {"tier": 4, "min_level": 30, "max_level": 50},
+        {"tier": 5, "min_level": 45, "max_level": 100}
+    ],
+    "level_tables": {
+        "novice": {
+            "stat_intervals": [
+                {"level": 4, "stats": ["str", "con"], "advantage": [], "disadvantage": []},
+                {"level": 8, "stats": ["dex", "wis"], "advantage": [], "disadvantage": []},
+                {"level": 12, "stats": ["str", "con"], "advantage": [], "disadvantage": []},
+                {"level": 16, "stats": ["dex", "int"], "advantage": [], "disadvantage": []}
+            ],
+            "damage_progression": [
+                {"level": 4, "min_damage": 1},
+                {"level": 8, "max_damage": 1},
+                {"level": 12, "min_damage": 1},
+                {"level": 16, "max_damage": 1}
+            ]
+        },
+        "warrior": {
+            "stat_intervals": [
+                {"level": 4, "stats": ["str", "con"], "advantage": ["str"], "disadvantage": ["int"]},
+                {"level": 6, "stats": ["str"], "advantage": ["str"], "disadvantage": []},
+                {"level": 8, "stats": ["con"], "advantage": [], "disadvantage": ["dex"]},
+                {"level": 12, "stats": ["str", "con"], "advantage": ["str"], "disadvantage": ["int"]},
+                {"level": 14, "stats": ["str"], "advantage": ["str"], "disadvantage": []},
+                {"level": 16, "stats": ["con"], "advantage": [], "disadvantage": ["dex"]}
+            ],
+            "damage_progression": [
+                {"level": 4, "min_damage": 1},
+                {"level": 5, "skill_uses": 1},
+                {"level": 8, "max_damage": 1},
+                {"level": 10, "extra_dice": 1},
+                {"level": 12, "min_damage": 1},
+                {"level": 15, "skill_uses": 1},
+                {"level": 16, "max_damage": 1},
+                {"level": 20, "extra_dice": 1}
+            ]
+        },
+        "mage": {
+            "stat_intervals": [
+                {"level": 4, "stats": ["int", "wis"], "advantage": ["int"], "disadvantage": ["str"]},
+                {"level": 6, "stats": ["int"], "advantage": ["int"], "disadvantage": []},
+                {"level": 8, "stats": ["wis"], "advantage": [], "disadvantage": ["dex"]},
+                {"level": 12, "stats": ["int", "wis"], "advantage": ["int"], "disadvantage": ["str"]},
+                {"level": 14, "stats": ["int"], "advantage": ["int"], "disadvantage": []},
+                {"level": 16, "stats": ["wis"], "advantage": [], "disadvantage": ["dex"]}
+            ],
+            "damage_progression": [
+                {"level": 4, "max_damage": 1},
+                {"level": 5, "skill_uses": 1},
+                {"level": 8, "extra_dice": 1},
+                {"level": 10, "skill_uses": 2},
+                {"level": 12, "max_damage": 1},
+                {"level": 15, "skill_uses": 1},
+                {"level": 16, "extra_dice": 1},
+                {"level": 20, "skill_uses": 2}
+            ]
+        },
+        "rogue": {
+            "stat_intervals": [
+                {"level": 4, "stats": ["dex", "int"], "advantage": ["dex"], "disadvantage": ["str"]},
+                {"level": 6, "stats": ["dex"], "advantage": ["dex"], "disadvantage": []},
+                {"level": 8, "stats": ["int"], "advantage": [], "disadvantage": ["con"]},
+                {"level": 12, "stats": ["dex", "int"], "advantage": ["dex"], "disadvantage": ["str"]},
+                {"level": 14, "stats": ["dex"], "advantage": ["dex"], "disadvantage": []},
+                {"level": 16, "stats": ["int"], "advantage": [], "disadvantage": ["con"]}
+            ],
+            "damage_progression": [
+                {"level": 4, "crit": 5},
+                {"level": 5, "skill_uses": 1},
+                {"level": 8, "sneak_dice": 1},
+                {"level": 10, "crit": 10},
+                {"level": 12, "crit": 5},
+                {"level": 15, "skill_uses": 1},
+                {"level": 16, "sneak_dice": 1},
+                {"level": 20, "crit": 15}
+            ]
+        }
+    },
+    "skills": [
+        {"id": 0, "name": "Tackle", "level": 3, "profession": 1, "dp_cost": 5, "uses_per": "combat", "uses_max": 3, "effect": {"damage_base": 3, "damage_per_level": 1}},
+        {"id": 1, "name": "Missile", "level": 3, "profession": 2, "dp_cost": 5, "uses_per": "combat", "uses_max": 2, "effect": {"damage_base": 4, "damage_per_level": 2}},
+        {"id": 2, "name": "Sneak Attack", "level": 3, "profession": 3, "dp_cost": 5, "uses_per": "combat", "uses_max": 2, "effect": {"crit_base": 15, "crit_per_level": 3}},
+        {"id": 3, "name": "Power Strike", "level": 5, "profession": 1, "dp_cost": 8, "uses_per": "combat", "uses_max": 2, "effect": {"damage_base": 5, "damage_per_level": 2}},
+        {"id": 4, "name": "Fireball", "level": 5, "profession": 2, "dp_cost": 8, "uses_per": "combat", "uses_max": 1, "effect": {"damage_base": 8, "damage_per_level": 3}},
+        {"id": 5, "name": "Backstab", "level": 5, "profession": 3, "dp_cost": 8, "uses_per": "combat", "uses_max": 1, "effect": {"crit_base": 30, "crit_per_level": 5}}
+    ]
+}

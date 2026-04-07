@@ -38,14 +38,54 @@
 #define DP_GAIN_CHANCE 30
 #define PROFESSION_UNLOCK_DP 10
 
-#define PET_DIRTY_NAME (1 << 0)
-#define PET_DIRTY_LEVEL (1 << 1)
-#define PET_DIRTY_EXP (1 << 2)
-#define PET_DIRTY_HP (1 << 3)
-#define PET_DIRTY_ENERGY (1 << 4)
-#define PET_DIRTY_STATS (1 << 5)
-#define PET_DIRTY_PROFESSION (1 << 6)
-#define PET_DIRTY_DP (1 << 7)
+#define REST_BASE_TICKS 5
+#define REST_DICE_SIDES 5
+#define REST_RECOVERY_PERCENT 10
+
+#define MAX_STATUS_EFFECTS 8
+#define MAX_PERKS 16
+
+#define STATUS_NONE      0
+#define STATUS_POISON    (1 << 0)
+#define STATUS_STUNNED   (1 << 1)
+#define STATUS_BLESSED   (1 << 2)
+#define STATUS_CURSED    (1 << 3)
+
+typedef struct {
+    uint8_t hp_rest_threshold;
+    uint8_t recovery_chance;
+} pet_rest_t;
+
+typedef struct {
+    uint8_t base_ac;
+    uint8_t damage_dice;
+    uint8_t damage_bonus;
+    uint8_t dice_count;
+} pet_combat_t;
+
+typedef struct {
+    int8_t min_damage;
+    int8_t max_damage;
+    int8_t extra_dice;
+    int8_t crit;
+    int8_t sneak_dice;
+    int8_t skill_uses;
+} pet_bonuses_t;
+
+typedef struct {
+    uint8_t id;
+    uint8_t stacks;
+} status_effect_t;
+
+typedef struct {
+    uint8_t id;
+} perk_t;
+
+typedef struct {
+    uint8_t skill_id;
+    uint8_t uses_remaining;
+    uint8_t uses_max;
+} pet_skill_t;
 
 typedef enum {
     GS_INIT,
@@ -82,20 +122,14 @@ typedef enum {
     COMBAT_RESULT_ENEMY_DEAD = 0xFFFF
 } combat_result_e;
 
-typedef struct {
-    int8_t min_damage;
-    int8_t max_damage;
-    int8_t extra_dice;
-    int8_t crit;
-    int8_t sneak_dice;
-    int8_t skill_uses;
-} pet_bonuses_t;
-
-typedef struct {
-    uint8_t skill_id;
-    uint8_t uses_remaining;
-    uint8_t uses_max;
-} pet_skill_t;
+#define PET_DIRTY_NAME (1 << 0)
+#define PET_DIRTY_LEVEL (1 << 1)
+#define PET_DIRTY_EXP (1 << 2)
+#define PET_DIRTY_HP (1 << 3)
+#define PET_DIRTY_ENERGY (1 << 4)
+#define PET_DIRTY_STATS (1 << 5)
+#define PET_DIRTY_PROFESSION (1 << 6)
+#define PET_DIRTY_DP (1 << 7)
 
 typedef struct {
     char name[PET_NAME_MAX_LEN];
@@ -116,7 +150,13 @@ typedef struct {
     uint8_t lives;
     uint8_t energy;
     uint8_t energy_max;
+    pet_rest_t rest;
+    pet_combat_t combat;
     pet_bonuses_t bonuses;
+    status_effect_t status[MAX_STATUS_EFFECTS];
+    uint8_t status_count;
+    perk_t perks[MAX_PERKS];
+    uint8_t perk_count;
     pet_skill_t skills[MAX_SKILLS];
     uint8_t skill_count;
     uint8_t dirty_flags;
@@ -157,11 +197,19 @@ typedef struct {
 } combat_state_t;
 
 typedef struct {
+    uint8_t hp_ticks_remaining;
+    uint8_t energy_ticks_remaining;
+    uint8_t hp_ticks_total;
+    uint8_t energy_ticks_total;
+} rest_state_t;
+
+typedef struct {
     game_state_e state;
     uint32_t state_entered_ms;
     pet_t pet;
     encounter_t encounter;
     combat_state_t combat;
+    rest_state_t rest;
 } game_snapshot_t;
 
 #endif
