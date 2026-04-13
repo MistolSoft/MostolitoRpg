@@ -42,11 +42,16 @@ SRCS
 "sprites.c"
 "spi_bus.c"
 "combat_engine.c"
+"rest_engine.c"
 "animation_system.c"
 "animation_loops.c"
+"dna_engine.c"
+"profession_engine.c"
+"skills_perks_engine.c"
 ${SPRITE_PLAYER_SRCS}
 ${SPRITE_ENEMY_SRCS}
 INCLUDE_DIRS "."
+REQUIRES mbedtls
 PRIV_REQUIRES esp_lcd spi_flash sdmmc fatfs freertos driver esp_timer cjson lvgl esp_driver_usb_serial_jtag
 )
 

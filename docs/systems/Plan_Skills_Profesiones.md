@@ -1,468 +1,870 @@
-# Plan: Sistema de Profesiones, Skills y Escalado por Nivel
+# Plan: Sistema de Profesiones, Skills y Perks
 
 ## Resumen del Sistema
 
-Las **tablas JSON** son la única fuente de verdad. El pet consulta las tablas en cada level up para:
-1. Subir stats según intervalos y modificadores
-2. Aplicar bonificaciones de daño
-3. Aprender skills con probabilidad de fallo
+El sistema usa **dos niveles separados**:
+
+| Nivel | Qué controla | Rango |
+|-------|--------------|-------|
+| `pet.level` | Enemigos tier, HP base, EXP next, progreso general | Infinito |
+| `pet.profession_level` | Bonus de profesión (stats, dados, skills, perks) | 1-20 (cicla) |
+
+### Flujo de Niveles
+
+```
+Pet sube de nivel (EXP >= EXP_NEXT)
+        │
+        ├── pet.level++ (siempre sube)
+        │
+        ├── pet.profession_level++ (si tiene profesión)
+        │   │
+        │   └── Si profession_level > 20 → profession_level = 1 (reinicia ciclo)
+        │
+        └── Aplicar bonus según profession_level actual
+```
+
+**Ejemplo:**
+- Pet lvl 45, Warrior profesión lvl 8 → aplica bonus nivel 8 de Warrior
+- Pet lvl 45, Warrior profesión lvl 20 → aplica bonus máximo (nivel 20)
+- Pet lvl 46, Warrior profesión lvl 1 → reinició ciclo, bonus base
 
 ---
 
-## Conceptos Clave
+## 1. Sistema de Stats por Nivel
 
-1. **Tablas = Funciones constantes**
-   - Cada nivel tiene modificadores específicos
-   - Cada profesión tiene sus propias reglas
-   - El pet CONSULTA las tablas, no guarda bonuses
+### Concepto Base
 
-2. **Stats suben por intervalos regulares**
-   - Cada profesión tiene: stats con ventaja/desventaja
-   - Roll random con modificadores según tabla
+Todos los niveles permiten subir stats, pero la cantidad y tipo depende de la profesión:
 
-3. **Skills con probabilidad de éxito inversa al nivel**
-   - A mayor nivel, MENOS probabilidad de éxito (skills más difíciles de dominar)
-   - Random choice si hay DP suficientes
+| Profesión | Stats Base (Novice) | Stats Extra (Profesión) | Total máximo |
+|-----------|---------------------|-------------------------|--------------|
+| Novice    | 2 stats cualquiera  | -                       | 2            |
+| Warrior   | 2 stats cualquiera  | +1 STR o CON            | 3            |
+| Mage      | 2 stats cualquiera  | +1 INT o WIS            | 3            |
+| Rogue     | 2 stats cualquiera  | +1 DEX o INT            | 3            |
+
+### Ejemplo: Guerrero profesión nivel 4
+
+1. **Tirada base (Novice)**: Puede elegir 2 stats cualquiera
+2. **Tirada profesión (Warrior)**: Puede hacer +1 tirada extra para STR o CON
+
+Si el guerrero tiene candidatos: STR, DEX, CON:
+- Novice: elige 2 (ej: STR y DEX suben)
+- Warrior: puede intentar subir STR o CON adicional
+- Resultado posible: STR+1, DEX+1, STR+1 (otra vez) = STR subió 2, DEX subió 1
+
+### Fórmula de Tirada de Stats
+
+```c
+bool try_stat_increase(pet_t *pet, uint8_t stat_idx, bool has_class_bonus)
+{
+    // Tirada base: d20 >= 10 para subir
+    uint8_t roll = roll_d20();
+    
+    // Con bonus de clase: ventaja (elegir mayor de 2d20)
+    if (has_class_bonus) {
+        uint8_t roll2 = roll_d20();
+        roll = (roll > roll2) ? roll : roll2;
+    }
+    
+    return roll >= 10;
+}
+```
 
 ---
 
-## Archivo JSON: `/DATA/game_tables.json`
+## 2. Nivel de Profesión y Bonus
+
+### Estructura
+
+El `profession_level` determina qué bonus de la tabla de profesión se aplican:
+
+```
+profession_level 1-20: bonus normales
+profession_level = 21: reinicia a 1 (nuevo ciclo)
+```
+
+### Tabla de Bonus por Profesión
+
+**Warrior (niveles de profesión):**
+
+| Nivel Prof. | Stats Extra | Bonus |
+|-------------|-------------|-------|
+| 4 | STR/CON advantage | +1 min_damage |
+| 6 | +1 STR roll | - |
+| 8 | CON disadvantage DEX | +1 max_damage |
+| 10 | - | +1 extra_dice |
+| 12 | STR/CON advantage | +1 min_damage |
+| 14 | +1 STR roll | - |
+| 16 | CON disadvantage DEX | +1 max_damage |
+| 20 | - | +1 extra_dice |
+
+**Mage (niveles de profesión):**
+
+| Nivel Prof. | Stats Extra | Bonus |
+|-------------|-------------|-------|
+| 4 | INT/WIS advantage | +1 max_damage |
+| 5 | - | +1 skill_uses |
+| 8 | +1 INT roll | +1 extra_dice |
+| 10 | - | +2 skill_uses |
+| 12 | INT/WIS advantage | +1 max_damage |
+| 14 | +1 INT roll | - |
+| 16 | WIS disadvantage DEX | +1 extra_dice |
+| 20 | - | +2 skill_uses |
+
+**Rogue (niveles de profesión):**
+
+| Nivel Prof. | Stats Extra | Bonus |
+|-------------|-------------|-------|
+| 4 | DEX/INT advantage | +5% crit |
+| 5 | - | +1 skill_uses |
+| 8 | +1 DEX roll | +1 sneak_dice |
+| 10 | - | +10% crit |
+| 12 | DEX/INT advantage | +5% crit |
+| 14 | +1 DEX roll | - |
+| 16 | INT disadvantage CON | +1 sneak_dice |
+| 20 | - | +15% crit |
+
+---
+
+## 3. Sistema de Profesiones
+
+### Estructura de Profesiones
+
+```json
+{
+  "professions": [
+    {
+      "id": 0,
+      "name": "Novice",
+      "description": "Clase base sin especialización",
+      "bonus_stats": [],
+      "base_hp": 20,
+      "base_energy": 10,
+      "base_ac": 12
+    },
+    {
+      "id": 1,
+      "name": "Warrior",
+      "description": "Especialista en combate cuerpo a cuerpo",
+      "req": {"str": 14, "con": 12},
+      "dp_cost": 10,
+      "success_dc": 10,
+      "bonus_stats": ["str", "con"],
+      "base_hp": 25,
+      "base_energy": 10,
+      "base_ac": 14
+    },
+    {
+      "id": 2,
+      "name": "Mage",
+      "description": "Maestro de las artes arcanas",
+      "req": {"int": 14, "wis": 12},
+      "dp_cost": 10,
+      "success_dc": 10,
+      "bonus_stats": ["int", "wis"],
+      "base_hp": 16,
+      "base_energy": 12,
+      "base_ac": 10
+    },
+    {
+      "id": 3,
+      "name": "Rogue",
+      "description": "Especialista en sigilo y ataques precisos",
+      "req": {"dex": 14, "int": 10},
+      "dp_cost": 10,
+      "success_dc": 10,
+      "bonus_stats": ["dex", "int"],
+      "base_hp": 18,
+      "base_energy": 10,
+      "base_ac": 12
+    }
+  ]
+}
+```
+
+### Flujo de Cambio de Profesión
+
+```
+LEVEL UP completado
+        │
+        ▼
+┌─────────────────────────────┐
+│ ¿Cumple requisitos de       │
+│ alguna profesión nueva?     │
+└─────────────────────────────┘
+        │
+        ├─ NO ──► Fin del level up
+        │
+        ▼ SI
+        │
+┌─────────────────────────────┐
+│ ¿Cumple MÁS de una?         │
+│                             │
+│ SI ──► Random choice        │
+│ NO  ──► Única opción        │
+└─────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────┐
+│ ¿Tiene DP suficientes?      │
+│                             │
+│ NO ──► Fin (no puede cambiar)│
+│ SI ──► Continuar            │
+└─────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────┐
+│ TIRADA DE SUERTE            │
+│                             │
+│ d20 >= success_dc (10)      │
+│                             │
+│ ÉXITO ──► Cambia profesión  │
+│ FALLO  ──► Consume DP       │
+└─────────────────────────────┘
+        │
+        ▼ (si cambió)
+┌─────────────────────────────┐
+│ Aplicar nueva profesión:    │
+│ - Leer tabla de profesión   │
+│ - Aplicar modificadores     │
+│ - Revisar skills disponibles│
+└─────────────────────────────┘
+```
+
+### Código de Cambio de Profesión
+
+```c
+void try_profession_change(pet_t *pet, uint8_t new_level)
+{
+    // Solo puede ocurrir en level up
+    if (pet->profession_id != 0) {
+        return; // Ya tiene profesión (por ahora no hay multiclase)
+    }
+    
+    // Buscar profesiones disponibles
+    uint8_t available[4];
+    uint8_t count = 0;
+    
+    for (uint8_t i = 1; i < profession_count; i++) {
+        profession_t *prof = &professions[i];
+        if (check_profession_requirements(pet, prof)) {
+            available[count++] = i;
+        }
+    }
+    
+    if (count == 0) return;
+    
+    // Elegir profesión (random si hay varias)
+    uint8_t chosen_idx = (count > 1) ? (esp_random() % count) : 0;
+    uint8_t chosen_prof = available[chosen_idx];
+    profession_t *prof = &professions[chosen_prof];
+    
+    // Verificar DP
+    if (pet->dp < prof->dp_cost) {
+        ESP_LOGI(TAG, "No tiene DP para %s (necesita %d)", 
+                 prof->name, prof->dp_cost);
+        return;
+    }
+    
+    // Tirada de suerte
+    uint8_t roll = roll_d20();
+    if (roll >= prof->success_dc) {
+        // ÉXITO: Cambiar profesión
+        pet->profession_id = chosen_prof;
+        pet->dp -= prof->dp_cost;
+        apply_profession_base(pet, prof);
+        ESP_LOGI(TAG, "¡Profesión adquirida: %s! (roll=%d)", 
+                 prof->name, roll);
+        
+        // Revisar skills disponibles
+        try_learn_skills(pet, new_level);
+    } else {
+        // FALLO: Consumir DP igualmente
+        pet->dp -= prof->dp_cost;
+        ESP_LOGI(TAG, "Fallo al adquirir %s (roll=%d, DC=%d)", 
+                 prof->name, roll, prof->success_dc);
+    }
+}
+```
+
+---
+
+## 4. Sistema de Skills y Perks
+
+### Concepto
+
+Las skills y perks se desbloquean según el **profession_level** y los **stats del pet**:
+- **Máximo 2 por level up** (combinados)
+- **Tirada de éxito** para cada una
+- Requisitos: profession_level + stats base (STR, DEX, CON, INT, WIS, CHA)
+
+### Requisitos Simplificados
+
+Skills y perks solo usan:
+- `profession_level_req`: Nivel de profesión necesario (1-20)
+- `stat_req`: Stats base mínimos (ej: STR 12)
+
+**NO usan** `level_req` de pet ni `damage_base` como requisito.
+
+### Estructura de Skills
+
+```json
+{
+  "skills": [
+    {
+      "id": 0,
+      "name": "Tackle",
+      "profession_level_req": 3,
+      "profession_req": [0, 1],
+      "stat_req": {"str": 12},
+      "dp_cost": 5,
+      "success_dc": 8,
+      "type": "active",
+      "uses_per": "combat",
+      "uses_max": 3,
+      "effect": {
+        "damage_base": 3,
+        "damage_per_level": 1
+      }
+    },
+    {
+      "id": 1,
+      "name": "Power Strike",
+      "profession_level_req": 5,
+      "profession_req": [1],
+      "stat_req": {"str": 14},
+      "dp_cost": 8,
+      "success_dc": 12,
+      "type": "active",
+      "uses_per": "combat",
+      "uses_max": 2,
+      "effect": {
+        "damage_base": 5,
+        "damage_per_level": 2
+      }
+    }
+  ]
+}
+```
+
+### Estructura de Perks (Pasivos)
+
+```json
+{
+  "perks": [
+    {
+      "id": 0,
+      "name": "Tough Skin",
+      "profession_level_req": 4,
+      "profession_req": [1],
+      "stat_req": {"con": 14},
+      "dp_cost": 6,
+      "success_dc": 10,
+      "type": "passive",
+      "effect": {
+        "ac_bonus": 1
+      }
+    },
+    {
+      "id": 1,
+      "name": "Arcane Mind",
+      "profession_level_req": 5,
+      "profession_req": [2],
+      "stat_req": {"int": 14},
+      "dp_cost": 7,
+      "success_dc": 11,
+      "type": "passive",
+      "effect": {
+        "energy_max_bonus": 2
+      }
+    },
+    {
+      "id": 2,
+      "name": "Quick Reflexes",
+      "profession_level_req": 4,
+      "profession_req": [3],
+      "stat_req": {"dex": 14},
+      "dp_cost": 6,
+      "success_dc": 10,
+      "type": "passive",
+      "effect": {
+        "crit_bonus": 5
+      }
+    }
+  ]
+}
+```
+
+### Flujo de Aprendizaje de Skills/Perks
+
+```
+Después de cambio de profesión (o level up con profesión)
+        │
+        ▼
+┌─────────────────────────────┐
+│ Filtrar skills/perks        │
+│ disponibles por:            │
+│ - Nivel actual              │
+│ - Profesión                 │
+│ - Stats                     │
+└─────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────┐
+│ ¿Tiene DP para alguna?      │
+│                             │
+│ NO ──► Fin                  │
+│ SI ──► Crear lista          │
+└─────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────┐
+│ Seleccionar máximo 2        │
+│ (random de la lista)        │
+└─────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────┐
+│ Por cada una:               │
+│                             │
+│ d20 >= success_dc?          │
+│                             │
+│ ÉXITO ──► Aprende           │
+│ FALLO  ──► DP consumido     │
+└─────────────────────────────┘
+```
+
+### Código de Aprendizaje
+
+```c
+void try_learn_skills_and_perks(pet_t *pet, uint8_t new_level)
+{
+    // Filtrar skills disponibles
+    skill_t *available_skills[16];
+    uint8_t skill_count = 0;
+    
+    for (uint8_t i = 0; i < skill_count_total; i++) {
+        skill_t *s = &skills[i];
+        if (skill_check_requirements(pet, s, new_level)) {
+            available_skills[skill_count++] = s;
+        }
+    }
+    
+    // Filtrar perks disponibles
+    perk_t *available_perks[16];
+    uint8_t perk_count = 0;
+    
+    for (uint8_t i = 0; i < perk_count_total; i++) {
+        perk_t *p = &perks[i];
+        if (perk_check_requirements(pet, p, new_level)) {
+            available_perks[perk_count++] = p;
+        }
+    }
+    
+    // Combinar y seleccionar máximo 2
+    uint8_t total_available = skill_count + perk_count;
+    if (total_available == 0) return;
+    
+    // Crear lista combinada con prioridad random
+    learn_candidate_t candidates[32];
+    uint8_t candidate_count = 0;
+    
+    for (uint8_t i = 0; i < skill_count; i++) {
+        candidates[candidate_count].type = LEARN_TYPE_SKILL;
+        candidates[candidate_count].ptr = available_skills[i];
+        candidate_count++;
+    }
+    for (uint8_t i = 0; i < perk_count; i++) {
+        candidates[candidate_count].type = LEARN_TYPE_PERK;
+        candidates[candidate_count].ptr = available_perks[i];
+        candidate_count++;
+    }
+    
+    // Seleccionar hasta 2 (random)
+    uint8_t to_learn = (candidate_count > 2) ? 2 : candidate_count;
+    
+    // Shuffle y tomar los primeros
+    shuffle_array(candidates, candidate_count);
+    
+    for (uint8_t i = 0; i < to_learn; i++) {
+        learn_candidate_t *c = &candidates[i];
+        
+        // Verificar DP
+        uint8_t dp_cost = get_dp_cost(c);
+        if (pet->dp < dp_cost) continue;
+        
+        // Tirada de éxito
+        uint8_t dc = get_success_dc(c);
+        uint8_t roll = roll_d20();
+        
+        if (roll >= dc) {
+            // ÉXITO
+            pet->dp -= dp_cost;
+            apply_learnable(pet, c);
+            ESP_LOGI(TAG, "¡Aprendido: %s! (roll=%d, DC=%d)", 
+                     get_name(c), roll, dc);
+        } else {
+            // FALLO
+            pet->dp -= dp_cost;
+            ESP_LOGI(TAG, "Fallo al aprender: %s (roll=%d, DC=%d)", 
+                     get_name(c), roll, dc);
+        }
+    }
+}
+```
+
+---
+
+## 5. Flujo Completo de Level Up
+
+```
+EXP >= EXP_NEXT
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 1. INCREMENTAR NIVEL                │
+│    pet->level++                     │
+│    pet->exp = 0                     │
+│    pet->exp_next = calc_exp(level)  │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 2. INCREMENTAR NIVEL PROFESIÓN      │
+│    if (pet->profession_id > 0)      │
+│      pet->profession_level++        │
+│      if (profession_level > 20)     │
+│        profession_level = 1         │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 3. SUBIR STATS BASE (NOVICE)        │
+│    - Obtener candidatos del ADN     │
+│    - Seleccionar 2 stats            │
+│    - Tirada d20 >= 10 para subir    │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 4. SUBIR STATS PROFESIÓN            │
+│    (si tiene profesión)             │
+│    - Verificar stat_intervals       │
+│    - Si profession_level coincide   │
+│    - Tirada con ventaja             │
+│    - Se suma al total               │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 5. APLICAR BONUS PROFESIÓN          │
+│    - Verificar damage_progression   │
+│    - Si profession_level coincide   │
+│    - Aplicar bonus correspondiente  │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 6. VERIFICAR CAMBIO PROFESIÓN       │
+│    - ¿Cumple requisitos?            │
+│    - ¿Tiene DP?                     │
+│    - Tirada de suerte               │
+│    - Si éxito: cambiar y aplicar    │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 7. APRENDER SKILLS/PERKS            │
+│    - Filtrar por profession_level   │
+│    - Filtrar por stats              │
+│    - Seleccionar máx 2              │
+│    - Tirada de éxito para cada una  │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 8. ACTUALIZAR HP/ENERGY             │
+│    - Aplicar bonos de CON           │
+│    - Aplicar perks pasivos          │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 9. GUARDAR                          │
+│    storage_save_pet_delta()         │
+└─────────────────────────────────────┘
+```
+
+---
+
+## 6. Estructura JSON Completa
+
+### game_tables.json
 
 ```json
 {
   "config": {
     "cycle_length": 20,
-    "cycle_multiplier": 0.5
+    "max_stats_per_level": 2,
+    "max_skills_per_level": 2,
+    "base_stat_dc": 10
   },
+  
   "professions": [
-    {"id": 0, "name": "Novice"},
-    {"id": 1, "name": "Warrior", "req": {"attr": "str", "value": 14}, "dp_cost": 10},
-    {"id": 2, "name": "Mage", "req": {"attr": "int", "value": 14}, "dp_cost": 10},
-    {"id": 3, "name": "Rogue", "req": {"attr": "dex", "value": 14}, "dp_cost": 10}
+    {
+      "id": 0,
+      "name": "Novice",
+      "bonus_stats": [],
+      "success_dc": 0,
+      "dp_cost": 0,
+      "base_hp": 20,
+      "base_energy": 10,
+      "base_ac": 12
+    },
+    {
+      "id": 1,
+      "name": "Warrior",
+      "req": {"str": 14, "con": 12},
+      "bonus_stats": ["str", "con"],
+      "success_dc": 10,
+      "dp_cost": 10,
+      "base_hp": 25,
+      "base_energy": 10,
+      "base_ac": 14,
+      "damage_dice": 6,
+      "dice_count": 3
+    },
+    {
+      "id": 2,
+      "name": "Mage",
+      "req": {"int": 14, "wis": 12},
+      "bonus_stats": ["int", "wis"],
+      "success_dc": 10,
+      "dp_cost": 10,
+      "base_hp": 16,
+      "base_energy": 12,
+      "base_ac": 10,
+      "damage_dice": 20,
+      "dice_count": 1
+    },
+    {
+      "id": 3,
+      "name": "Rogue",
+      "req": {"dex": 14, "int": 10},
+      "bonus_stats": ["dex", "int"],
+      "success_dc": 10,
+      "dp_cost": 10,
+      "base_hp": 18,
+      "base_energy": 10,
+      "base_ac": 12,
+      "damage_dice": 4,
+      "dice_count": 3
+    }
   ],
-  "level_tables": {
-    "novice": {
-      "stat_intervals": [
-        {"level": 4, "stats": ["str", "con"], "advantage": [], "disadvantage": []},
-        {"level": 8, "stats": ["dex", "wis"], "advantage": [], "disadvantage": []},
-        {"level": 12, "stats": ["str", "con"], "advantage": [], "disadvantage": []},
-        {"level": 16, "stats": ["dex", "int"], "advantage": [], "disadvantage": []}
-      ],
-      "damage_progression": [
-        {"level": 4, "min_damage": 1},
-        {"level": 8, "max_damage": 1},
-        {"level": 12, "min_damage": 1},
-        {"level": 16, "max_damage": 1}
-      ]
-    },
-    "warrior": {
-      "stat_intervals": [
-        {"level": 4, "stats": ["str", "con"], "advantage": ["str"], "disadvantage": ["int"]},
-        {"level": 6, "stats": ["str"], "advantage": ["str"], "disadvantage": []},
-        {"level": 8, "stats": ["con"], "advantage": [], "disadvantage": ["dex"]},
-        {"level": 12, "stats": ["str", "con"], "advantage": ["str"], "disadvantage": ["int"]},
-        {"level": 14, "stats": ["str"], "advantage": ["str"], "disadvantage": []},
-        {"level": 16, "stats": ["con"], "advantage": [], "disadvantage": ["dex"]}
-      ],
-      "damage_progression": [
-        {"level": 4, "min_damage": 1},
-        {"level": 5, "skill_uses": 1},
-        {"level": 8, "max_damage": 1},
-        {"level": 10, "extra_dice": 1},
-        {"level": 12, "min_damage": 1},
-        {"level": 15, "skill_uses": 1},
-        {"level": 16, "max_damage": 1},
-        {"level": 20, "extra_dice": 1}
-      ]
-    },
-    "mage": {
-      "stat_intervals": [
-        {"level": 4, "stats": ["int", "wis"], "advantage": ["int"], "disadvantage": ["str"]},
-        {"level": 6, "stats": ["int"], "advantage": ["int"], "disadvantage": []},
-        {"level": 8, "stats": ["wis"], "advantage": [], "disadvantage": ["dex"]},
-        {"level": 12, "stats": ["int", "wis"], "advantage": ["int"], "disadvantage": ["str"]},
-        {"level": 14, "stats": ["int"], "advantage": ["int"], "disadvantage": []},
-        {"level": 16, "stats": ["wis"], "advantage": [], "disadvantage": ["dex"]}
-      ],
-      "damage_progression": [
-        {"level": 4, "max_damage": 1},
-        {"level": 5, "skill_uses": 1},
-        {"level": 8, "extra_dice": 1},
-        {"level": 10, "skill_uses": 2},
-        {"level": 12, "max_damage": 1},
-        {"level": 15, "skill_uses": 1},
-        {"level": 16, "extra_dice": 1},
-        {"level": 20, "skill_uses": 2}
-      ]
-    },
-    "rogue": {
-      "stat_intervals": [
-        {"level": 4, "stats": ["dex", "int"], "advantage": ["dex"], "disadvantage": ["str"]},
-        {"level": 6, "stats": ["dex"], "advantage": ["dex"], "disadvantage": []},
-        {"level": 8, "stats": ["int"], "advantage": [], "disadvantage": ["con"]},
-        {"level": 12, "stats": ["dex", "int"], "advantage": ["dex"], "disadvantage": ["str"]},
-        {"level": 14, "stats": ["dex"], "advantage": ["dex"], "disadvantage": []},
-        {"level": 16, "stats": ["int"], "advantage": [], "disadvantage": ["con"]}
-      ],
-      "damage_progression": [
-        {"level": 4, "crit": 5},
-        {"level": 5, "skill_uses": 1},
-        {"level": 8, "sneak_dice": 1},
-        {"level": 10, "crit": 10},
-        {"level": 12, "crit": 5},
-        {"level": 15, "skill_uses": 1},
-        {"level": 16, "sneak_dice": 1},
-        {"level": 20, "crit": 15}
-      ]
-    }
-  },
+  
   "skills": [
-    {"id": 0, "name": "Tackle", "level": 3, "profession": 1, "dp_cost": 5, "uses_per": "combat", "uses_max": 3, "effect": {"damage_base": 3, "damage_per_level": 1}},
-    {"id": 1, "name": "Missile", "level": 3, "profession": 2, "dp_cost": 5, "uses_per": "combat", "uses_max": 2, "effect": {"damage_base": 4, "damage_per_level": 2}},
-    {"id": 2, "name": "Sneak Attack", "level": 3, "profession": 3, "dp_cost": 5, "uses_per": "combat", "uses_max": 2, "effect": {"crit_base": 15, "crit_per_level": 3}},
-    {"id": 3, "name": "Power Strike", "level": 5, "profession": 1, "dp_cost": 8, "uses_per": "combat", "uses_max": 2, "effect": {"damage_base": 5, "damage_per_level": 2}},
-    {"id": 4, "name": "Fireball", "level": 5, "profession": 2, "dp_cost": 8, "uses_per": "combat", "uses_max": 1, "effect": {"damage_base": 8, "damage_per_level": 3}},
-    {"id": 5, "name": "Backstab", "level": 5, "profession": 3, "dp_cost": 8, "uses_per": "combat", "uses_max": 1, "effect": {"crit_base": 30, "crit_per_level": 5}}
-  ]
-}
-```
-
----
-
-## Sistema de Stats con Advantage/Disadvantage
-
-### Stat Intervals por Nivel
-
-| Campo | Descripción |
-|-------|-------------|
-| `level` | A qué nivel se puede subir stats |
-| `stats` | Qué stats pueden subir en ese nivel |
-| `advantage` | Stats con ventaja (roll 2d20, elegir mayor) |
-| `disadvantage` | Stats con desventaja (roll 2d20, elegir menor) |
-
-### Ejemplo Warrior Nivel 4
-
-```json
-{"level": 4, "stats": ["str", "con"], "advantage": ["str"], "disadvantage": ["int"]}
-```
-
-**Proceso:**
-1. Pet llega a nivel 4
-2. Puede subir STR o CON
-3. STR tiene ventaja (más probabilidad de subir)
-4. Si quisiera subir INT (no está en stats), tendría desventaja (pero en este caso no puede subir INT en nivel 4)
-
-### Fórmula para subir stat
-
-```c
-bool try_stat_increase(pet_t *pet, uint8_t stat_index, bool has_advantage, bool has_disadvantage)
-{
-    uint8_t roll1 = roll_d20();
-    uint8_t roll2 = roll_d20();
-    uint8_t final_roll;
-
-    if (has_advantage) {
-        final_roll = max(roll1, roll2);
-    } else if (has_disadvantage) {
-        final_roll = min(roll1, roll2);
-    } else {
-        final_roll = roll1;
+    {
+      "id": 0,
+      "name": "Tackle",
+      "profession_level_req": 3,
+      "profession_req": [0, 1],
+      "stat_req": {"str": 12},
+      "dp_cost": 5,
+      "success_dc": 8,
+      "type": "active",
+      "uses_per": "combat",
+      "uses_max": 3,
+      "effect": {"damage_base": 3, "damage_per_level": 1}
+    },
+    {
+      "id": 1,
+      "name": "Power Strike",
+      "profession_level_req": 5,
+      "profession_req": [1],
+      "stat_req": {"str": 14},
+      "dp_cost": 8,
+      "success_dc": 12,
+      "type": "active",
+      "uses_per": "combat",
+      "uses_max": 2,
+      "effect": {"damage_base": 5, "damage_per_level": 2}
+    },
+    {
+      "id": 2,
+      "name": "Missile",
+      "profession_level_req": 3,
+      "profession_req": [0, 2],
+      "stat_req": {"int": 12},
+      "dp_cost": 5,
+      "success_dc": 8,
+      "type": "active",
+      "uses_per": "combat",
+      "uses_max": 2,
+      "effect": {"damage_base": 4, "damage_per_level": 2}
+    },
+    {
+      "id": 3,
+      "name": "Fireball",
+      "profession_level_req": 5,
+      "profession_req": [2],
+      "stat_req": {"int": 14},
+      "dp_cost": 8,
+      "success_dc": 12,
+      "type": "active",
+      "uses_per": "combat",
+      "uses_max": 1,
+      "effect": {"damage_base": 8, "damage_per_level": 3}
+    },
+    {
+      "id": 4,
+      "name": "Sneak Attack",
+      "profession_level_req": 3,
+      "profession_req": [0, 3],
+      "stat_req": {"dex": 12},
+      "dp_cost": 5,
+      "success_dc": 8,
+      "type": "active",
+      "uses_per": "combat",
+      "uses_max": 2,
+      "effect": {"crit_base": 15, "crit_per_level": 3}
+    },
+    {
+      "id": 5,
+      "name": "Backstab",
+      "profession_level_req": 5,
+      "profession_req": [3],
+      "stat_req": {"dex": 14},
+      "dp_cost": 8,
+      "success_dc": 12,
+      "type": "active",
+      "uses_per": "combat",
+      "uses_max": 1,
+      "effect": {"crit_base": 30, "crit_per_level": 5}
     }
-
-    // Probabilidad base: stat aumenta si roll >= 10
-    // Con ventaja: más probable
-    // Con desventaja: menos probable
-    return final_roll >= 10;
-}
-```
-
----
-
-## Sistema de Aprendizaje de Skills con Probabilidad de Éxito Inversa
-
-### Fórmula
-
-```
-probabilidad_exito = 100 - (nivel_pet × 3)
-```
-
-**Ejemplos:**
-- Nivel 3: 100 - 9 = 91% éxito
-- Nivel 5: 100 - 15 = 85% éxito
-- Nivel 10: 100 - 30 = 70% éxito
-- Nivel 20: 100 - 60 = 40% éxito
-- Nivel 30: 100 - 90 = 10% éxito
-
-**Lógica:** A niveles altos, las skills son más poderosas y difíciles de dominar.
-
-### Proceso de Aprendizaje
-
-```c
-void try_learn_skill(pet_t *pet, uint8_t *available_skills, uint8_t count)
-{
-    // Filtrar skills por DP disponible
-    skill_data_t affordable[16];
-    uint8_t affordable_count = 0;
-
-    for (int i = 0; i < count; i++) {
-        skill_data_t skill;
-        skill_get_data(available_skills[i], &skill);
-        if (pet->dp >= skill.dp_cost) {
-            affordable[affordable_count++] = skill;
-        }
+  ],
+  
+  "perks": [
+    {
+      "id": 0,
+      "name": "Tough Skin",
+      "profession_level_req": 4,
+      "profession_req": [1],
+      "stat_req": {"con": 14},
+      "dp_cost": 6,
+      "success_dc": 10,
+      "type": "passive",
+      "effect": {"ac_bonus": 1}
+    },
+    {
+      "id": 1,
+      "name": "Arcane Mind",
+      "profession_level_req": 5,
+      "profession_req": [2],
+      "stat_req": {"int": 14},
+      "dp_cost": 7,
+      "success_dc": 11,
+      "type": "passive",
+      "effect": {"energy_max_bonus": 2}
+    },
+    {
+      "id": 2,
+      "name": "Quick Reflexes",
+      "profession_level_req": 4,
+      "profession_req": [3],
+      "stat_req": {"dex": 14},
+      "dp_cost": 6,
+      "success_dc": 10,
+      "type": "passive",
+      "effect": {"crit_bonus": 5}
+    },
+    {
+      "id": 3,
+      "name": "Battle Hardened",
+      "profession_level_req": 6,
+      "profession_req": [1],
+      "stat_req": {"con": 15},
+      "dp_cost": 10,
+      "success_dc": 13,
+      "type": "passive",
+      "effect": {"hp_max_bonus": 5}
+    },
+    {
+      "id": 4,
+      "name": "Spell Mastery",
+      "profession_level_req": 6,
+      "profession_req": [2],
+      "stat_req": {"int": 15},
+      "dp_cost": 10,
+      "success_dc": 13,
+      "type": "passive",
+      "effect": {"skill_uses_bonus": 1}
+    },
+    {
+      "id": 5,
+      "name": "Shadow Steps",
+      "profession_level_req": 6,
+      "profession_req": [3],
+      "stat_req": {"dex": 15},
+      "dp_cost": 10,
+      "success_dc": 13,
+      "type": "passive",
+      "effect": {"dodge_bonus": 2}
     }
-
-    if (affordable_count == 0) return;
-
-    // Elegir skill random
-    uint8_t idx = esp_random() % affordable_count;
-    skill_data_t chosen = affordable[idx];
-
-    // Calcular probabilidad de éxito (inversa al nivel)
-    uint8_t success_rate = 100 - (pet->level * 3);
-    if (success_rate < 5) success_rate = 5; // Mínimo 5% siempre
-
-    // Roll
-    uint8_t roll = esp_random() % 100;
-
-    if (roll < success_rate) {
-        // Éxito: aprender skill
-        pet->dp -= chosen.dp_cost;
-        add_skill_to_pet(pet, chosen.id);
-        ESP_LOGI(TAG, "Skill aprendida: %s", chosen.name);
-    } else {
-        // Fallo
-        ESP_LOGI(TAG, "Fallo al aprender skill: %s", chosen.name);
-    }
+  ],
+  
+  "enemies": [...],
+  "enemy_tiers": [...]
 }
 ```
 
 ---
 
-## Flujo Completo de Level Up
+## 7. Resumen de Reglas
 
-```
-pet_level_up(pet)
-    │
-    ├── 1. Aumentar nivel
-    │
-    ├── 2. Consultar tabla de stat_intervals
-    │   ├── Para cada stat disponible en este nivel
-    │   ├── Roll con advantage/disadvantage según tabla
-    │   └── Si éxito → stat++
-    │
-    ├── 3. Consultar tabla de damage_progression
-    │   ├── Aplicar bonus según nivel (min_damage, max_damage, extra_dice, etc.)
-    │   └── Guardar en pet->bonuses
-    │
-    ├── 4. Consultar skills disponibles
-    │   ├── Filtrar por nivel y profesión
-    │   ├── Filtrar por DP disponible
-    │   ├── Elegir skill random
-    │   ├── Calcular probabilidad de éxito
-    │   ├── Roll → ¿éxito?
-    │   │   ├── Sí → Descontar DP, aprender skill
-    │   │   └── No → No aprender, DP se conserva
-    │
-    └── 5. Guardar pet_data.json
-```
+### Niveles
+| Campo | Uso | Rango |
+|-------|-----|-------|
+| `pet.level` | Tier de enemigos, HP base, EXP | Infinito |
+| `pet.profession_level` | Bonus de profesión | 1-20 (cicla) |
 
----
-
-## Fórmula de Repetición con Multiplicador (Ciclos Infinitos)
-
-```
-ciclo = floor((level - 1) / 20)
-nivel_en_ciclo = ((level - 1) % 20) + 1
-multiplicador = 1 + (ciclo × 0.5)
-bonus_final = floor(bonus_base × multiplicador)
-```
-
-### Ejemplo Guerrero nivel 44
-
-```
-ciclo = floor(43 / 20) = 2
-nivel_en_ciclo = (43 % 20) + 1 = 4
-multiplicador = 1 + (2 × 0.5) = 2.0
-
-Bonus nivel 4: min_damage: 1
-Bonus aplicado: floor(1 × 2.0) = +2 min_damage
-```
-
-### Ejemplo Guerrero nivel 64
-
-```
-ciclo = floor(63 / 20) = 3
-nivel_en_ciclo = (63 % 20) + 1 = 4
-multiplicador = 1 + (3 × 0.5) = 2.5
-
-Bonus nivel 4: min_damage: 1
-Bonus aplicado: floor(1 × 2.5) = +2 min_damage
-```
-
----
-
-## Estructura del Pet (`pet_data.json`)
-
-```json
-{
-  "name": "Mistolito",
-  "level": 4,
-  "exp": 0,
-  "hp": 45,
-  "hp_max": 45,
-  "str": 15,
-  "dex": 12,
-  "con": 14,
-  "int": 10,
-  "wis": 8,
-  "cha": 11,
-  "profession_id": 1,
-  "dp": 8,
-  "enemies_defeated": 5,
-  "lives": 1,
-  "energy": 10,
-  "bonuses": {
-    "min_damage": 1,
-    "max_damage": 0,
-    "extra_dice": 0,
-    "crit": 0,
-    "sneak_dice": 0,
-    "skill_uses": 1
-  },
-  "skills": [
-    {"id": 0, "uses_remaining": 3}
-  ]
-}
-```
-
----
-
-## Resumen de Profesiones y Skills
+### Stats
+| Regla | Valor |
+|-------|-------|
+| Stats base por level (Novice) | 2 |
+| Stats extra por profesión | +1 (stats específicos) |
+| DC para subir stat | 10 |
+| Bonus de profesión | Ventaja (2d20, elegir mayor) |
 
 ### Profesiones
+| Regla | Valor |
+|-------|-------|
+| Requisitos | Stats mínimos |
+| DP cost | 10 |
+| DC de éxito | 10 |
+| Consume DP en fallo | Sí |
 
-| ID | Nombre | Requisito | DP Costo |
-|----|--------|-----------|----------|
-| 0 | Novice | - | 0 |
-| 1 | Warrior | STR ≥ 14 | 10 DP |
-| 2 | Mage | INT ≥ 14 | 10 DP |
-| 3 | Rogue | DEX ≥ 14 | 10 DP |
-
-### Skills
-
-| ID | Nombre | Profesión | Nivel | DP Costo | Usos | Efecto |
-|----|--------|-----------|-------|----------|------|--------|
-| 0 | Tackle | Warrior | 3 | 5 DP | 3/combate | +3 daño (+1/lvl) |
-| 1 | Missile | Mage | 3 | 5 DP | 2/combate | +4 daño (+2/lvl) |
-| 2 | Sneak Attack | Rogue | 3 | 5 DP | 2/combate | +15% crit (+3%/lvl) |
-| 3 | Power Strike | Warrior | 5 | 8 DP | 2/combate | +5 daño (+2/lvl) |
-| 4 | Fireball | Mage | 5 | 8 DP | 1/combate | +8 daño (+3/lvl) |
-| 5 | Backstab | Rogue | 5 | 8 DP | 1/combate | +30% crit (+5%/lvl) |
+### Skills/Perks
+| Regla | Valor |
+|-------|-------|
+| Máximo por level up | 2 |
+| Requisito nivel | `profession_level` (1-20) |
+| Requisito stats | Stats base mínimos |
+| DC de éxito | Variable (8-13) |
+| Consume DP en fallo | Sí |
 
 ---
 
-## Plan de Implementación
+## 8. Preguntas Pendientes
 
-### FASE 1: Crear archivos de datos
-1. Crear `firmware/data/game_tables.json`
+### 1. ¿Puede cambiar de profesión múltiples veces?
+**Propuesta actual:** No, una vez obtiene profesión permanece. (Podría implementarse multiclase en el futuro)
 
-### FASE 2: Nuevo componente `data_loader`
-2. Crear `firmware/components/data/CMakeLists.txt`
-3. Crear `firmware/components/data/data_loader.h`
-4. Crear `firmware/components/data/data_loader.c`
+### 2. ¿Los skills se pierden al morir?
+**Propuesta actual:** Sí, al morir el pet pierde todo y renace como Novice nivel 1 con nuevo ADN derivado.
 
-**Funciones principales:**
-```c
-esp_err_t data_loader_init(void);
-esp_err_t level_table_get_stat_interval(uint8_t level, uint8_t profession, stat_interval_t *out);
-esp_err_t level_table_get_damage_progression(uint8_t level, uint8_t profession, damage_bonus_t *out);
-bool skill_check_available(uint8_t level, uint8_t profession, uint8_t *skill_ids, uint8_t *count);
-esp_err_t skill_get_data(uint8_t skill_id, skill_data_t *out);
-esp_err_t profession_get_req(uint8_t profession_id, profession_req_t *out);
-```
+### 3. ¿Puede aprender skills de otra profesión?
+**Propuesta actual:** Solo si `profession_req` incluye Novice (id=0). Skills avanzadas son exclusivas.
 
-### FASE 3: Modificar `pet.h` y `pet.c`
-5. Agregar campos `bonuses` y `skills` dinámicos a `pet_t`
-6. Modificar `pet_level_up()` para:
-   - Consultar stat_intervals y hacer rolls con advantage/disadvantage
-   - Consultar damage_progression y aplicar bonus
-   - Consultar skills disponibles y intentar aprender con probabilidad de fallo
-7. Crear función `pet_apply_level_bonus()` que calcula bonus según tabla
-8. Eliminar tablas hardcodeadas
-
-### FASE 4: Modificar `combat_engine.c`
-9. Usar bonuses del pet para calcular daño con extra_dice, min_damage, max_damage
-10. Aplicar efectos de skills activas
-
-### FASE 5: Modificar `storage/sd_card.c`
-11. Guardar/cargar campo `bonuses` en `pet_data.json`
-12. Guardar/cargar array `skills` dinámico
-
-### FASE 6: Integrar en `main.c`
-13. Agregar `#include "data_loader.h"`
-14. Llamar `data_loader_init()` después de montar SD
-
-### FASE 7: Modificar `main/CMakeLists.txt`
-15. Agregar dependencia `REQUIRES data`
-
-### FASE 8: Probar flujo completo
-16. Copiar archivo JSON a SD manualmente
-17. Flashear y verificar:
-   - Level up consulta stat_intervals
-   - Stats suben con advantage/disadvantage
-   - Bonuses se aplican correctamente
-   - Skills se aprenden con DP y probabilidad de fallo
-   - Daño escala correctamente
-
----
-
-## Preguntas Pendientes
-
-### 1. Probabilidad de éxito de skills
-
-**Fórmula actual:** `probabilidad_exito = 100 - (nivel_pet × 3)`
-
-- Nivel 3: 91% éxito
-- Nivel 10: 70% éxito
-- Nivel 30: 10% éxito (mínimo 5%)
-
-**¿Está bien esta dificultad progresiva?** ¿O prefieres otros valores?
-
-### 2. Stat intervals con advantage/disadvantage
-
-¿Están bien definidos los intervalos y qué stats tienen ventaja/desventaja?
-
-### 3. Proceso de level up completo
-
-¿Falta algo en el flujo de level up?
-
-### 4. Múltiples skills disponibles y DP limitado
-
-¿Qué pasa si el pet tiene múltiples skills disponibles y DP para solo una?
-
-- **Opción A:** Elige random entre las que puede pagar
-- **Opción B:** Elige la más barata primero
-- **Opción C:** Elige la más cara (mejor skill)
-
-### 5. Múltiples skills por level up
-
-¿Puede aprender múltiples skills en un mismo level up?
-
-- **Opción A:** Solo 1 skill por level up
-- **Opción B:** Todas las que pueda pagar y pasar el roll
-
----
-
-## Decisión sobre Cambio de Profesión
-
-Cuando el pet cambia de profesión:
-- **Sigue la tabla de la nueva profesión** desde el nivel actual
-- **Mantiene las bonificaciones acumuladas** de la profesión anterior
-- **Las nuevas bonificaciones se suman** a las existentes
-
-Ejemplo:
-- Guerrero lvl 10: +2 min_damage, +1 max_damage, +1 extra_dice
-- Cambia a Mage en lvl 10
-- Mage lvl 12: +1 max_damage (se suma al existente)
-- Total: +2 min_damage, +2 max_damage, +1 extra_dice
+### 4. ¿Qué pasa al reiniciar profession_level?
+**Propuesta actual:** Al llegar a profession_level 21, se reinicia a 1. El pet puede reaprender skills/perks del nuevo ciclo, pero los ya aprendidos se mantienen.

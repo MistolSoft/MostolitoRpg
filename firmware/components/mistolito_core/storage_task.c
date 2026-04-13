@@ -1,5 +1,6 @@
 #include "storage_task.h"
 #include "mistolito.h"
+#include "dna_engine.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "spi_bus.h"
@@ -71,20 +72,37 @@ void storage_task(void *arg)
             spi_bus_lock();
 
             switch (req.operation) {
-    case STORAGE_OP_SAVE_PET_DELTA:
+case STORAGE_OP_SAVE_PET_DELTA:
     {
         FILE *f = fopen(MOUNT_POINT "/BRAIN/PET/pet_data.json", "w");
         if (f) {
-            fprintf(f, "{\"name\":\"%s\",\"level\":%d,\"exp\":%lu,\"hp\":%d,\"hp_max\":%d,\"energy\":%d,\"profession\":%d,\"str\":%d,\"dex\":%d,\"con\":%d,\"int\":%d,\"wis\":%d,\"cha\":%d,\"dp\":%lu,\"enemies_killed\":%lu,\"lives\":%d,\"hp_rest_threshold\":%d,\"recovery_chance\":%d,\"base_ac\":%d,\"damage_dice\":%d,\"damage_bonus\":%d,\"dice_count\":%d}\n",
-            req.pet->name, req.pet->level, (unsigned long)req.pet->exp,
+            fprintf(f, "{\"name\":\"%s\",\"level\":%d,\"profession_level\":%d,\"exp\":%lu,\"hp\":%d,\"hp_max\":%d,\"energy\":%d,\"profession\":%d,\"str\":%d,\"dex\":%d,\"con\":%d,\"int\":%d,\"wis\":%d,\"cha\":%d,\"dp\":%lu,\"enemies_killed\":%lu,\"lives\":%d,\"hp_rest_threshold\":%d,\"recovery_chance\":%d,\"base_ac\":%d,\"damage_dice\":%d,\"damage_bonus\":%d,\"dice_count\":%d,\"dna_salt\":%lu,\"skill_count\":%d,\"perk_count\":%d",
+            req.pet->name, req.pet->level, req.pet->profession_level, (unsigned long)req.pet->exp,
             req.pet->hp, req.pet->hp_max, req.pet->energy, req.pet->profession,
             req.pet->str, req.pet->dex, req.pet->con,
             req.pet->intel, req.pet->wis, req.pet->cha,
             (unsigned long)req.pet->dp, (unsigned long)req.pet->enemies_killed, req.pet->lives,
             req.pet->rest.hp_rest_threshold, req.pet->rest.recovery_chance,
-            req.pet->combat.base_ac, req.pet->combat.damage_dice, req.pet->combat.damage_bonus, req.pet->combat.dice_count);
+            req.pet->combat.base_ac, req.pet->combat.damage_dice, req.pet->combat.damage_bonus, req.pet->combat.dice_count,
+            (unsigned long)req.pet->dna.salt, req.pet->skill_count, req.pet->perk_count);
+
+            fprintf(f, ",\"skills\":[");
+            for (uint8_t i = 0; i < req.pet->skill_count; i++) {
+                if (i > 0) fprintf(f, ",");
+                fprintf(f, "{\"id\":%d,\"uses\":%d}", req.pet->skills[i].skill_id, req.pet->skills[i].uses_remaining);
+            }
+            fprintf(f, "]");
+
+            fprintf(f, ",\"perks\":[");
+            for (uint8_t i = 0; i < req.pet->perk_count; i++) {
+                if (i > 0) fprintf(f, ",");
+                fprintf(f, "{\"id\":%d}", req.pet->perks[i].id);
+            }
+            fprintf(f, "]");
+
+            fprintf(f, "}\n");
             fclose(f);
-            ESP_LOGI(TAG, "Pet saved (dirty=0x%02X)", req.dirty_flags);
+            ESP_LOGI(TAG, "Pet saved (dirty=0x%04X)", req.dirty_flags);
         }
     }
     break;
@@ -101,11 +119,12 @@ void storage_task(void *arg)
                     cJSON *root = cJSON_Parse(buf);
                     if (root) {
                         cJSON *item;
-                        if ((item = cJSON_GetObjectItem(root, "name"))) {
-                            strncpy(req.pet->name, item->valuestring, PET_NAME_MAX_LEN - 1);
-                        }
-                        if ((item = cJSON_GetObjectItem(root, "level"))) req.pet->level = item->valueint;
-                        if ((item = cJSON_GetObjectItem(root, "exp"))) req.pet->exp = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "name"))) {
+    strncpy(req.pet->name, item->valuestring, PET_NAME_MAX_LEN - 1);
+}
+if ((item = cJSON_GetObjectItem(root, "level"))) req.pet->level = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "profession_level"))) req.pet->profession_level = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "exp"))) req.pet->exp = item->valueint;
                         if ((item = cJSON_GetObjectItem(root, "hp"))) req.pet->hp = item->valueint;
                         if ((item = cJSON_GetObjectItem(root, "hp_max"))) req.pet->hp_max = item->valueint;
                         if ((item = cJSON_GetObjectItem(root, "energy"))) req.pet->energy = item->valueint;
@@ -123,12 +142,43 @@ void storage_task(void *arg)
             if ((item = cJSON_GetObjectItem(root, "base_ac"))) req.pet->combat.base_ac = item->valueint;
             if ((item = cJSON_GetObjectItem(root, "damage_dice"))) req.pet->combat.damage_dice = item->valueint;
             if ((item = cJSON_GetObjectItem(root, "damage_bonus"))) req.pet->combat.damage_bonus = item->valueint;
-            if ((item = cJSON_GetObjectItem(root, "dice_count"))) req.pet->combat.dice_count = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "dice_count"))) req.pet->combat.dice_count = item->valueint;
 
-            cJSON_Delete(root);
-            ESP_LOGI(TAG, "Pet loaded: %s Lv.%d", req.pet->name, req.pet->level);
+    cJSON *skills_arr = cJSON_GetObjectItem(root, "skills");
+    if (skills_arr && cJSON_IsArray(skills_arr)) {
+        cJSON *skill_item = NULL;
+        cJSON_ArrayForEach(skill_item, skills_arr) {
+            if (req.pet->skill_count < MAX_SKILLS) {
+                cJSON *id_item = cJSON_GetObjectItem(skill_item, "id");
+                cJSON *uses_item = cJSON_GetObjectItem(skill_item, "uses");
+                if (id_item) {
+                    req.pet->skills[req.pet->skill_count].skill_id = (uint8_t)id_item->valueint;
+                    req.pet->skills[req.pet->skill_count].uses_remaining = uses_item ? (uint8_t)uses_item->valueint : 3;
+                    req.pet->skills[req.pet->skill_count].uses_max = 3;
+                    req.pet->skill_count++;
+                }
+            }
         }
     }
+
+    cJSON *perks_arr = cJSON_GetObjectItem(root, "perks");
+    if (perks_arr && cJSON_IsArray(perks_arr)) {
+        cJSON *perk_item = NULL;
+        cJSON_ArrayForEach(perk_item, perks_arr) {
+            if (req.pet->perk_count < MAX_PERKS) {
+                cJSON *id_item = cJSON_GetObjectItem(perk_item, "id");
+                if (id_item) {
+                    req.pet->perks[req.pet->perk_count].id = (uint8_t)id_item->valueint;
+                    req.pet->perk_count++;
+                }
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+    ESP_LOGI(TAG, "Pet loaded: %s Lv.%d (skills=%d, perks=%d)", req.pet->name, req.pet->level, req.pet->skill_count, req.pet->perk_count);
+}
+}
 }
 break;
 
@@ -175,10 +225,11 @@ bool storage_load_pet(pet_t *pet)
     cJSON *root = cJSON_Parse(buf);
     if (!root) return false;
 
-    cJSON *item;
-    if ((item = cJSON_GetObjectItem(root, "name"))) strncpy(pet->name, item->valuestring, PET_NAME_MAX_LEN - 1);
-    if ((item = cJSON_GetObjectItem(root, "level"))) pet->level = item->valueint;
-    if ((item = cJSON_GetObjectItem(root, "exp"))) pet->exp = item->valueint;
+cJSON *item;
+if ((item = cJSON_GetObjectItem(root, "name"))) strncpy(pet->name, item->valuestring, PET_NAME_MAX_LEN - 1);
+if ((item = cJSON_GetObjectItem(root, "level"))) pet->level = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "profession_level"))) pet->profession_level = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "exp"))) pet->exp = item->valueint;
     if ((item = cJSON_GetObjectItem(root, "hp"))) pet->hp = item->valueint;
     if ((item = cJSON_GetObjectItem(root, "hp_max"))) pet->hp_max = item->valueint;
     if ((item = cJSON_GetObjectItem(root, "energy"))) pet->energy = item->valueint;
@@ -196,12 +247,62 @@ bool storage_load_pet(pet_t *pet)
     if ((item = cJSON_GetObjectItem(root, "base_ac"))) pet->combat.base_ac = item->valueint;
     if ((item = cJSON_GetObjectItem(root, "damage_dice"))) pet->combat.damage_dice = item->valueint;
     if ((item = cJSON_GetObjectItem(root, "damage_bonus"))) pet->combat.damage_bonus = item->valueint;
-    if ((item = cJSON_GetObjectItem(root, "dice_count"))) pet->combat.dice_count = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "dice_count"))) pet->combat.dice_count = item->valueint;
+
+cJSON *skills_arr = cJSON_GetObjectItem(root, "skills");
+if (skills_arr && cJSON_IsArray(skills_arr)) {
+    cJSON *skill_item = NULL;
+    cJSON_ArrayForEach(skill_item, skills_arr) {
+        if (pet->skill_count < MAX_SKILLS) {
+            cJSON *id_item = cJSON_GetObjectItem(skill_item, "id");
+            cJSON *uses_item = cJSON_GetObjectItem(skill_item, "uses");
+            if (id_item) {
+                pet->skills[pet->skill_count].skill_id = (uint8_t)id_item->valueint;
+                pet->skills[pet->skill_count].uses_remaining = uses_item ? (uint8_t)uses_item->valueint : 3;
+                pet->skills[pet->skill_count].uses_max = 3;
+                pet->skill_count++;
+            }
+        }
+    }
+}
+
+cJSON *perks_arr = cJSON_GetObjectItem(root, "perks");
+if (perks_arr && cJSON_IsArray(perks_arr)) {
+    cJSON *perk_item = NULL;
+    cJSON_ArrayForEach(perk_item, perks_arr) {
+        if (pet->perk_count < MAX_PERKS) {
+            cJSON *id_item = cJSON_GetObjectItem(perk_item, "id");
+            if (id_item) {
+                pet->perks[pet->perk_count].id = (uint8_t)id_item->valueint;
+                pet->perk_count++;
+            }
+        }
+    }
+}
+
+    uint32_t saved_salt = 0;
+    if ((item = cJSON_GetObjectItem(root, "dna_salt"))) saved_salt = (uint32_t)item->valueint;
 
     pet->energy_max = MAX_ENERGY;
     pet->is_alive = true;
 
     cJSON_Delete(root);
+
+    storage_load_dna_codes_only(&pet->dna);
+
+    if (saved_salt != 0) {
+        pet->dna.salt = saved_salt;
+        ESP_LOGI(TAG, "Using saved salt: 0x%08lX", (unsigned long)pet->dna.salt);
+    } else {
+        pet->dna.salt = esp_random();
+        ESP_LOGI(TAG, "Generated new salt: 0x%08lX", (unsigned long)pet->dna.salt);
+    }
+
+    storage_derive_dna_stats(&pet->dna);
+
+    ESP_LOGI(TAG, "Pet loaded: %s Lv.%d (salt=0x%08lX, skills=%d, perks=%d)", 
+             pet->name, pet->level, (unsigned long)pet->dna.salt, pet->skill_count, pet->perk_count);
+
     return true;
 }
 
@@ -564,13 +665,101 @@ esp_err_t storage_save_file(const char *path, const uint8_t *data, size_t len)
 
 esp_err_t storage_delete_file(const char *path)
 {
+spi_bus_lock();
+int result = remove(path);
+spi_bus_unlock();
+
+if (result == 0) {
+ESP_LOGI(TAG, "Deleted %s", path);
+return ESP_OK;
+}
+return ESP_FAIL;
+}
+
+bool storage_load_dna_codes_only(dna_t *dna)
+{
+    if (dna == NULL) {
+        ESP_LOGE(TAG, "storage_load_dna_codes_only: dna is NULL");
+        return false;
+    }
+
     spi_bus_lock();
-    int result = remove(path);
+
+    FILE *f = fopen(MOUNT_POINT "/DATA/DNA/pet_dna.json", "r");
+    if (!f) {
+        spi_bus_unlock();
+        ESP_LOGW(TAG, "DNA file not found, using default codes");
+        const char *default_codes[DNA_STAT_COUNT] = {
+            "A3fK9x", "B7mP2q", "C1nL8w", "D5hR4t", "E9kM6y", "F2jS7z"
+        };
+        for (int i = 0; i < DNA_STAT_COUNT; i++) {
+            strncpy(dna->codes[i], default_codes[i], DNA_CODE_LEN - 1);
+            dna->codes[i][DNA_CODE_LEN - 1] = '\0';
+        }
+        return false;
+    }
+
+    char buf[256];
+    size_t len = fread(buf, 1, sizeof(buf) - 1, f);
+    buf[len] = '\0';
+    fclose(f);
+
     spi_bus_unlock();
 
-    if (result == 0) {
-        ESP_LOGI(TAG, "Deleted %s", path);
-        return ESP_OK;
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        ESP_LOGE(TAG, "storage_load_dna_codes_only: JSON parse failed");
+        return false;
     }
-    return ESP_FAIL;
+
+    cJSON *item;
+    const char *stat_keys[] = {"str", "dex", "con", "int", "wis", "cha"};
+
+    for (int i = 0; i < DNA_STAT_COUNT; i++) {
+        item = cJSON_GetObjectItem(root, stat_keys[i]);
+        if (item && item->valuestring) {
+            strncpy(dna->codes[i], item->valuestring, DNA_CODE_LEN - 1);
+            dna->codes[i][DNA_CODE_LEN - 1] = '\0';
+        }
+    }
+
+    cJSON_Delete(root);
+
+    ESP_LOGI(TAG, "DNA codes loaded: %s %s %s %s %s %s",
+             dna->codes[0], dna->codes[1], dna->codes[2],
+             dna->codes[3], dna->codes[4], dna->codes[5]);
+    return true;
+}
+
+void storage_derive_dna_stats(dna_t *dna)
+{
+    if (dna == NULL) {
+        return;
+    }
+
+    dna_generate_hash(dna);
+
+    dna_derive_all_stats(dna, dna->base_stats);
+
+    for (uint8_t i = 0; i < DNA_STAT_COUNT; i++) {
+        dna->caps[i] = dna->base_stats[i] + DNA_CAP_OFFSET;
+    }
+
+    ESP_LOGI(TAG, "DNA stats derived: STR=%d DEX=%d CON=%d INT=%d WIS=%d CHA=%d",
+             dna->base_stats[0], dna->base_stats[1], dna->base_stats[2],
+             dna->base_stats[3], dna->base_stats[4], dna->base_stats[5]);
+}
+
+const char* storage_get_professions_json(void)
+{
+    return g_professions_json;
+}
+
+const char* storage_get_game_tables_json(void)
+{
+    static char *g_game_tables_json = NULL;
+    if (!g_game_tables_json) {
+        g_game_tables_json = load_json_file(MOUNT_POINT "/DATA/game_tables.json");
+    }
+    return g_game_tables_json;
 }

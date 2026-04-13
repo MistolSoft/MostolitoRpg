@@ -6,7 +6,7 @@ This script sends initialization files to MistolitoRPG device via USB Serial.
 
 Usage:
     python send_init_files.py --port COM3
-    python send_init_files.py --port COM3 --game-tables ../firmware/data/game_tables.json
+    python send_init_files.py --port COM3 --wipe
 """
 
 import serial
@@ -19,6 +19,7 @@ import argparse
 CHUNK_SIZE = 128
 BAUDRATE = 115200
 TIMEOUT = 5
+
 
 class MistolitoUSBInit:
     def __init__(self, port, baudrate=BAUDRATE):
@@ -47,7 +48,7 @@ class MistolitoUSBInit:
     def disconnect(self):
         if self.ser:
             self.ser.close()
-        print("Disconnected.")
+            print("Disconnected.")
 
     def send_command(self, cmd, wait_for_response=True):
         full_cmd = f"CMD:{cmd}\n"
@@ -88,7 +89,7 @@ class MistolitoUSBInit:
         print(f"Sending {filename} ({filesize} bytes)...")
 
         response = self.send_command(f"FILE_START:{remote_file_path}:{filesize}")
-        print(f"  Response: {response}")
+        print(f" Response: {response}")
 
         if not response.startswith("FILE_RECV_START"):
             print("FAILED")
@@ -105,7 +106,7 @@ class MistolitoUSBInit:
                 sent += len(chunk)
 
                 pct = int((sent / filesize) * 100)
-                print(f"\r  {pct}%", end="", flush=True)
+                print(f"\r {pct}%", end="", flush=True)
 
                 response = self.send_command(f"FILE_DATA:{encoded}")
 
@@ -118,16 +119,27 @@ class MistolitoUSBInit:
         response = self.send_command("FILE_END")
 
         if "FILE_RECV_OK" in response:
-            print("  OK")
+            print(" OK")
             return True
         else:
-            print("  FAILED")
+            print(" FAILED")
             return False
 
     def check_status(self):
         response = self.send_command("STATUS")
         print(f"Status: {response}")
         return response
+
+    def delete_file(self, remote_path):
+        print(f"Deleting {remote_path}...", end=" ", flush=True)
+        response = self.send_command(f"DELETE:{remote_path}")
+        
+        if "DELETE_OK" in response or "FILE_NOT_FOUND" in response:
+            print("OK")
+            return True
+        else:
+            print(f"Response: {response}")
+            return False
 
     def complete_init(self):
         print("Completing initialization...", end=" ", flush=True)
@@ -161,6 +173,8 @@ def main():
     parser.add_argument('--port', required=True, help='Serial port (e.g., COM3 or /dev/ttyUSB0)')
     parser.add_argument('--tables-dir', default='firmware/data/tables',
                         help='Directory containing table JSON files')
+    parser.add_argument('--dna-dir', default='firmware/data/dna',
+                        help='Directory containing DNA JSON file')
     parser.add_argument('--pet-data', default='firmware/data/pet_data.json',
                         help='Path to pet_data.json')
     parser.add_argument('--baud', type=int, default=BAUDRATE, help='Baud rate')
@@ -200,14 +214,21 @@ def main():
             else:
                 print(f"Warning: {table_file} not found")
 
-        pet_data_path = args.pet_data
-        if not os.path.isabs(pet_data_path):
-            pet_data_path = os.path.join(project_root, pet_data_path)
+        dna_dir = args.dna_dir
+        if not os.path.isabs(dna_dir):
+            dna_dir = os.path.join(project_root, dna_dir)
 
-        if os.path.exists(pet_data_path):
-            if not init.send_file(pet_data_path, "/BRAIN/PET/pet_data.json"):
-                print("Failed to send pet_data.json")
+        dna_file = os.path.join(dna_dir, 'pet_dna.json')
+        if os.path.exists(dna_file):
+            if not init.send_file(dna_file, "/DATA/DNA/pet_dna.json"):
+                print("Failed to send pet_dna.json")
                 return
+        else:
+            print("Warning: pet_dna.json not found")
+
+        # Delete pet_data.json to force regeneration from DNA on first boot
+        print("Deleting pet_data.json to force DNA-based initialization...")
+        init.delete_file("/BRAIN/PET/pet_data.json")
 
         if not init.complete_init():
             return

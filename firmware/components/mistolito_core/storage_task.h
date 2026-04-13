@@ -2,6 +2,7 @@
 #define STORAGE_TASK_H
 
 #include "mistolito.h"
+#include "dna_engine.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
@@ -33,5 +34,9 @@ uint8_t storage_get_random_enemy_id(uint8_t pet_level);
 bool storage_file_exists(const char *path);
 esp_err_t storage_save_file(const char *path, const uint8_t *data, size_t len);
 esp_err_t storage_delete_file(const char *path);
+bool storage_load_dna_codes_only(dna_t *dna);
+void storage_derive_dna_stats(dna_t *dna);
+const char* storage_get_professions_json(void);
+const char* storage_get_game_tables_json(void);
 
 #endif
