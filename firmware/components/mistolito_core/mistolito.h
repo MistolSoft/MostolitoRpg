@@ -221,6 +221,19 @@ typedef struct {
 } combat_frame_result_t;
 
 typedef struct {
+    bool search_ended;
+    bool encounter_found;
+    bool new_data;
+} search_frame_result_t;
+
+typedef struct {
+    int16_t hp_recovered;
+    int16_t energy_recovered;
+    bool rest_ended;
+    bool new_data;
+} rest_frame_result_t;
+
+typedef struct {
     game_state_e state;
     uint32_t state_entered_ms;
     pet_t pet;

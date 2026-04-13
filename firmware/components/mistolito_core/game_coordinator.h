@@ -13,6 +13,10 @@ SemaphoreHandle_t game_coordinator_get_mutex(void);
 QueueHandle_t game_coordinator_get_turn_done_queue(void);
 combat_frame_result_t* game_coordinator_get_combat_result(void);
 void game_coordinator_clear_combat_result(void);
+search_frame_result_t* game_coordinator_get_search_result(void);
+void game_coordinator_clear_search_result(void);
+rest_frame_result_t* game_coordinator_get_rest_result(void);
+void game_coordinator_clear_rest_result(void);
 void game_coordinator_task(void *arg);
 
 extern TaskHandle_t g_coordinator_task_handle;

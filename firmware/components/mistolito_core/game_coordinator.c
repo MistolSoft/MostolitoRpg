@@ -2,7 +2,6 @@
 #include "combat_engine.h"
 #include "rest_engine.h"
 #include "events.h"
-#include "workers.h"
 #include "storage_task.h"
 #include "display_task.h"
 #include "rules.h"
@@ -24,6 +23,12 @@ static SemaphoreHandle_t g_snapshot_mutex = NULL;
 
 static combat_frame_result_t g_combat_result;
 static bool g_combat_active = false;
+
+static search_frame_result_t g_search_result;
+static uint32_t g_search_start_ms = 0;
+static uint32_t g_search_duration_ms = 0;
+
+static rest_frame_result_t g_rest_result;
 
 TaskHandle_t g_coordinator_task_handle = NULL;
 
@@ -64,14 +69,6 @@ static void emit_enemy_spawned_event(void)
 {
     game_event_t evt = { .type = EVT_ENEMY_SPAWNED };
     events_send(&evt);
-}
-
-static void resume_and_notify(TaskHandle_t task)
-{
-    if (task != NULL) {
-        vTaskResume(task);
-        xTaskNotify(task, 0, eNoAction);
-    }
 }
 
 void game_coordinator_start(void)
@@ -127,6 +124,31 @@ void game_coordinator_clear_combat_result(void)
     g_combat_result.enemy_hit_this_frame = false;
     g_combat_result.turns_this_frame = 0;
     g_combat_result.new_data = false;
+}
+
+search_frame_result_t* game_coordinator_get_search_result(void)
+{
+    return &g_search_result;
+}
+
+void game_coordinator_clear_search_result(void)
+{
+    g_search_result.search_ended = false;
+    g_search_result.encounter_found = false;
+    g_search_result.new_data = false;
+}
+
+rest_frame_result_t* game_coordinator_get_rest_result(void)
+{
+    return &g_rest_result;
+}
+
+void game_coordinator_clear_rest_result(void)
+{
+    g_rest_result.hp_recovered = 0;
+    g_rest_result.energy_recovered = 0;
+    g_rest_result.rest_ended = false;
+    g_rest_result.new_data = false;
 }
 
 static void process_level_up(void)
@@ -382,33 +404,55 @@ void game_coordinator_task(void *arg)
                         ESP_LOGI(TAG, "New pet created with salt 0x%08lX", (unsigned long)g_snapshot.pet.dna.salt);
                     }
 
-                    g_snapshot.pet.exp_next = calc_exp_for_level(g_snapshot.pet.level);
+        g_snapshot.pet.exp_next = calc_exp_for_level(g_snapshot.pet.level);
 
-                    if (g_snapshot.pet.energy > 0) {
-                        resume_and_notify(g_search_task_handle);
-                        transition_to(GS_SEARCHING);
-                    } else {
-                        resume_and_notify(g_rest_task_handle);
-                        transition_to(GS_RESTING);
-                    }
-                }
-                break;
+        g_search_start_ms = 0;
+        g_search_duration_ms = 0;
 
-            case GS_SEARCHING:
-                if (g_search_task_handle != NULL) {
-                    vTaskResume(g_search_task_handle);
-                    xTaskNotify(g_search_task_handle, 0, eNoAction);
+        if (g_snapshot.pet.energy > 0) {
+            transition_to(GS_SEARCHING);
+        } else {
+            rest_init(&g_snapshot.rest, &g_snapshot.pet);
+            transition_to(GS_RESTING);
+        }
+    }
+    break;
 
-                    uint32_t result = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-                    if (result > 0) {
-                        memset(&g_combat_result, 0, sizeof(g_combat_result));
-                        g_combat_active = true;
+case GS_SEARCHING:
+    if (g_search_start_ms == 0) {
+        g_search_start_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        g_search_duration_ms = (esp_random() % 5 + 3) * 1000;
+        memset(&g_search_result, 0, sizeof(g_search_result));
+        ESP_LOGI(TAG, "Searching started, duration: %lu ms", (unsigned long)g_search_duration_ms);
+    }
 
-                        emit_enemy_spawned_event();
-                        transition_to(GS_COMBAT);
-                    }
-                }
-                break;
+    uint32_t elapsed_ms = (uint32_t)(esp_timer_get_time() / 1000) - g_search_start_ms;
+    g_search_result.new_data = true;
+
+    if (elapsed_ms >= g_search_duration_ms) {
+        combat_engine_start_encounter(&g_snapshot.encounter, g_snapshot.pet.level);
+
+        g_snapshot.pet.energy--;
+        g_snapshot.pet.dirty_flags |= PET_DIRTY_ENERGY;
+
+        g_search_result.search_ended = true;
+        g_search_result.encounter_found = true;
+        g_search_result.new_data = true;
+
+        ESP_LOGI(TAG, "Encounter spawned: %d enemy(s)", g_snapshot.encounter.count);
+
+        memset(&g_combat_result, 0, sizeof(g_combat_result));
+        g_combat_active = true;
+
+        g_search_start_ms = 0;
+        g_search_duration_ms = 0;
+
+        emit_enemy_spawned_event();
+        transition_to(GS_COMBAT);
+    } else {
+        taskYIELD();
+    }
+    break;
 
             case GS_COMBAT:
                 if (!g_snapshot.pet.is_alive || combat_engine_all_enemies_dead(&g_snapshot.encounter)) {
@@ -422,75 +466,74 @@ void game_coordinator_task(void *arg)
                 }
                 break;
 
-            case GS_VICTORY:
-                storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-                g_snapshot.pet.dirty_flags = 0;
-                vTaskDelay(pdMS_TO_TICKS(2000));
-                if (rest_should_rest(g_snapshot.pet.hp, g_snapshot.pet.hp_max, g_snapshot.pet.rest.hp_rest_threshold)) {
-                    rest_init(&g_snapshot.rest, &g_snapshot.pet);
-                    transition_to(GS_RESTING);
-                } else if (g_snapshot.pet.energy > 0) {
-                    resume_and_notify(g_search_task_handle);
-                    transition_to(GS_SEARCHING);
-                } else {
-                    rest_init(&g_snapshot.rest, &g_snapshot.pet);
-                    transition_to(GS_RESTING);
-                }
-                break;
+case GS_VICTORY:
+    storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+    g_snapshot.pet.dirty_flags = 0;
+    g_search_start_ms = 0;
+    if (rest_should_rest(g_snapshot.pet.hp, g_snapshot.pet.hp_max, g_snapshot.pet.rest.hp_rest_threshold)) {
+        rest_init(&g_snapshot.rest, &g_snapshot.pet);
+        transition_to(GS_RESTING);
+    } else if (g_snapshot.pet.energy > 0) {
+        transition_to(GS_SEARCHING);
+    } else {
+        rest_init(&g_snapshot.rest, &g_snapshot.pet);
+        transition_to(GS_RESTING);
+    }
+    break;
 
-            case GS_LEVELUP:
-                process_level_up();
-                vTaskDelay(pdMS_TO_TICKS(2000));
-                if (rest_should_rest(g_snapshot.pet.hp, g_snapshot.pet.hp_max, g_snapshot.pet.rest.hp_rest_threshold)) {
-                    rest_init(&g_snapshot.rest, &g_snapshot.pet);
-                    transition_to(GS_RESTING);
-                } else if (g_snapshot.pet.energy > 0) {
-                    resume_and_notify(g_search_task_handle);
-                    transition_to(GS_SEARCHING);
-                } else {
-                    rest_init(&g_snapshot.rest, &g_snapshot.pet);
-                    transition_to(GS_RESTING);
-                }
-                break;
+case GS_LEVELUP:
+    process_level_up();
+    g_search_start_ms = 0;
+    if (rest_should_rest(g_snapshot.pet.hp, g_snapshot.pet.hp_max, g_snapshot.pet.rest.hp_rest_threshold)) {
+        rest_init(&g_snapshot.rest, &g_snapshot.pet);
+        transition_to(GS_RESTING);
+    } else if (g_snapshot.pet.energy > 0) {
+        transition_to(GS_SEARCHING);
+    } else {
+        rest_init(&g_snapshot.rest, &g_snapshot.pet);
+        transition_to(GS_RESTING);
+    }
+    break;
 
-            case GS_RESTING:
-                if (g_rest_task_handle != NULL) {
-                    vTaskResume(g_rest_task_handle);
-                    xTaskNotify(g_rest_task_handle, 0, eNoAction);
+case GS_RESTING:
+{
+    bool hp_recovering = rest_tick_hp(&g_snapshot.pet, &g_snapshot.rest);
+    bool energy_recovering = rest_tick_energy(&g_snapshot.pet, &g_snapshot.rest);
 
-                    uint32_t result = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));
-                    if (result > 0) {
-                        bool hp_recovering = rest_tick_hp(&g_snapshot.pet, &g_snapshot.rest);
-                        bool energy_recovering = rest_tick_energy(&g_snapshot.pet, &g_snapshot.rest);
+    g_rest_result.hp_recovered = hp_recovering ? 1 : 0;
+    g_rest_result.energy_recovered = energy_recovering ? 1 : 0;
+    g_rest_result.new_data = true;
 
-                        g_snapshot.pet.dirty_flags |= PET_DIRTY_HP | PET_DIRTY_ENERGY;
+    g_snapshot.pet.dirty_flags |= PET_DIRTY_HP | PET_DIRTY_ENERGY;
 
-                        if (!hp_recovering && !energy_recovering) {
-                            vTaskSuspend(g_rest_task_handle);
-                            storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-                            g_snapshot.pet.dirty_flags = 0;
-                            resume_and_notify(g_search_task_handle);
-                            transition_to(GS_SEARCHING);
-                        }
-                    }
-                }
-                break;
+    if (!hp_recovering && !energy_recovering) {
+        storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+        g_snapshot.pet.dirty_flags = 0;
 
-            case GS_DEAD:
-                ESP_LOGI(TAG, "Pet died! Resetting...");
-                if (g_snapshot_mutex && xSemaphoreTake(g_snapshot_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-                    combat_engine_reset_pet_on_death(&g_snapshot.pet);
-                    storage_apply_profession_data(&g_snapshot.pet, PROF_NONE);
-                    g_snapshot.pet.exp_next = calc_exp_for_level(1);
-                    g_snapshot.pet.dirty_flags = 0xFF;
-                    xSemaphoreGive(g_snapshot_mutex);
-                }
-                storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-                g_snapshot.pet.dirty_flags = 0;
-                vTaskDelay(pdMS_TO_TICKS(2000));
-                resume_and_notify(g_search_task_handle);
-                transition_to(GS_SEARCHING);
-                break;
+        g_rest_result.rest_ended = true;
+        g_rest_result.new_data = true;
+
+        transition_to(GS_SEARCHING);
+    } else {
+        taskYIELD();
+    }
+}
+break;
+
+case GS_DEAD:
+    ESP_LOGI(TAG, "Pet died! Resetting...");
+    if (g_snapshot_mutex && xSemaphoreTake(g_snapshot_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        combat_engine_reset_pet_on_death(&g_snapshot.pet);
+        storage_apply_profession_data(&g_snapshot.pet, PROF_NONE);
+        g_snapshot.pet.exp_next = calc_exp_for_level(1);
+        g_snapshot.pet.dirty_flags = 0xFF;
+        xSemaphoreGive(g_snapshot_mutex);
+    }
+    storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+    g_snapshot.pet.dirty_flags = 0;
+    g_search_start_ms = 0;
+    transition_to(GS_SEARCHING);
+    break;
 
             default:
                 transition_to(GS_INIT);
