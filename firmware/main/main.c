@@ -6,7 +6,6 @@
 #include "mistolito.h"
 #include "events.h"
 #include "game_coordinator.h"
-#include "workers.h"
 #include "storage_task.h"
 #include "display_task.h"
 #include "lcd_init.h"
@@ -37,15 +36,6 @@ void app_main(void)
     ESP_LOGI(TAG, "Creating tasks...");
 
     xTaskCreatePinnedToCore(game_coordinator_task, "coordinator", 12288, NULL, 4, &g_coordinator_task_handle, 0);
-
-    xTaskCreatePinnedToCore(combat_worker_task, "combat", 4096, NULL, 3, &g_combat_task_handle, 0);
-    vTaskSuspend(g_combat_task_handle);
-
-    xTaskCreatePinnedToCore(search_worker_task, "search", 4096, NULL, 2, &g_search_task_handle, 0);
-    vTaskSuspend(g_search_task_handle);
-
-    xTaskCreatePinnedToCore(rest_worker_task, "rest", 4096, NULL, 1, &g_rest_task_handle, 0);
-    vTaskSuspend(g_rest_task_handle);
 
     xTaskCreatePinnedToCore(storage_task, "storage", 4096, NULL, 1, NULL, 0);
 
