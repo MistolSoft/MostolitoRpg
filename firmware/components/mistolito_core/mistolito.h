@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "dna_engine.h"
 
 #define MISTOLITO_VERSION "2.0.0"
 
@@ -130,10 +131,14 @@ typedef enum {
 #define PET_DIRTY_STATS (1 << 5)
 #define PET_DIRTY_PROFESSION (1 << 6)
 #define PET_DIRTY_DP (1 << 7)
+#define PET_DIRTY_PROF_LEVEL (1 << 8)
+#define PET_DIRTY_SKILLS (1 << 9)
+#define PET_DIRTY_PERKS (1 << 10)
 
 typedef struct {
     char name[PET_NAME_MAX_LEN];
     uint8_t level;
+    uint8_t profession_level;
     uint32_t exp;
     uint32_t exp_next;
     int16_t hp;
@@ -150,6 +155,7 @@ typedef struct {
     uint8_t lives;
     uint8_t energy;
     uint8_t energy_max;
+    dna_t dna;
     pet_rest_t rest;
     pet_combat_t combat;
     pet_bonuses_t bonuses;
@@ -159,7 +165,7 @@ typedef struct {
     uint8_t perk_count;
     pet_skill_t skills[MAX_SKILLS];
     uint8_t skill_count;
-    uint8_t dirty_flags;
+    uint16_t dirty_flags;
     bool is_alive;
 } pet_t;
 
@@ -202,6 +208,17 @@ typedef struct {
     uint8_t hp_ticks_total;
     uint8_t energy_ticks_total;
 } rest_state_t;
+
+typedef struct {
+    int16_t pet_damage_this_frame;
+    int16_t enemy_damage_this_frame;
+    bool pet_hit_this_frame;
+    bool enemy_hit_this_frame;
+    bool combat_ended;
+    bool victory;
+    uint8_t turns_this_frame;
+    bool new_data;
+} combat_frame_result_t;
 
 typedef struct {
     game_state_e state;

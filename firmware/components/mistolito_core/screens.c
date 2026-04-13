@@ -50,6 +50,40 @@ static lv_style_t style_box;
 static const char* state_str[] = {"INIT", "SEARCHING", "COMBAT", "VICTORY", "LEVELUP", "RESTING", "DEAD"};
 static const char* prof_str[] = {"NOV", "WAR", "MAG", "ROG"};
 
+#define UI_DIRTY_NAME       (1 << 0)
+#define UI_DIRTY_LEVEL      (1 << 1)
+#define UI_DIRTY_HP         (1 << 2)
+#define UI_DIRTY_ENERGY     (1 << 3)
+#define UI_DIRTY_DP         (1 << 4)
+#define UI_DIRTY_STATS      (1 << 5)
+#define UI_DIRTY_ENEMY_HP   (1 << 6)
+#define UI_DIRTY_ENEMY_NAME (1 << 7)
+#define UI_DIRTY_EXP        (1 << 8)
+#define UI_DIRTY_PROFESSION (1 << 9)
+#define UI_DIRTY_STATE      (1 << 10)
+
+typedef struct {
+    char name[PET_NAME_MAX_LEN];
+    uint8_t level;
+    int16_t hp;
+    int16_t hp_max;
+    uint8_t energy;
+    uint8_t energy_max;
+    uint32_t dp;
+    uint32_t exp;
+    uint32_t exp_next;
+    uint8_t stats[STAT_COUNT];
+    uint8_t profession;
+    game_state_e state;
+    char enemy_name[ENEMY_NAME_MAX_LEN];
+    int16_t enemy_hp;
+    int16_t enemy_hp_max;
+    bool enemy_visible;
+} ui_cache_t;
+
+static ui_cache_t ui_cache = {0};
+static uint16_t ui_dirty_flags = 0;
+
 static void init_styles(void)
 {
     lv_style_init(&style_box);
@@ -257,53 +291,167 @@ void screens_update(game_snapshot_t *snap)
         return;
     }
 
-    lv_label_set_text(pet_name_label, snap->pet.name);
-
-    const char *prof_name = (snap->pet.profession < 4) ? prof_str[snap->pet.profession] : "???";
-    lv_label_set_text(profession_label, prof_name);
-
-    lv_snprintf(buf, sizeof(buf), "Lv%d", snap->pet.level);
-    lv_label_set_text(level_label, buf);
-
-    uint8_t xp_pct = snap->pet.exp_next > 0 ? (snap->pet.exp * 100) / snap->pet.exp_next : 0;
-    lv_snprintf(buf, sizeof(buf), "XP%d%%", xp_pct);
-    lv_label_set_text(exp_label, buf);
-
-    lv_snprintf(buf, sizeof(buf), "DP%lu", (unsigned long)snap->pet.dp);
-    lv_label_set_text(dp_label, buf);
-
-    uint8_t hp_pct = snap->pet.hp_max > 0 ? (snap->pet.hp * 100) / snap->pet.hp_max : 0;
-    lv_snprintf(buf, sizeof(buf), "HP%d%%", hp_pct);
-    lv_label_set_text(hp_label, buf);
-
-    uint8_t en_pct = snap->pet.energy_max > 0 ? (snap->pet.energy * 100) / snap->pet.energy_max : 0;
-    lv_snprintf(buf, sizeof(buf), "EN%d%%", en_pct);
-    lv_label_set_text(energy_label, buf);
-
-    lv_snprintf(buf, sizeof(buf), " %2d   %2d   %2d   %2d   %2d   %2d",
-                snap->pet.str, snap->pet.dex, snap->pet.con,
-                snap->pet.intel, snap->pet.wis, snap->pet.cha);
-    lv_label_set_text(stats_row, buf);
-
-    if (snap->encounter.count > 0 && snap->encounter.enemies[0].alive) {
-        enemy_t *enemy = &snap->encounter.enemies[0];
-        lv_obj_clear_flag(enemy_sprite, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(enemy_shadow, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(enemy_name_label, enemy->name);
-
-        int16_t hp_pct = (enemy->hp * 100) / enemy->hp_max;
-        lv_bar_set_value(enemy_hp_bar, hp_pct, LV_ANIM_ON);
-
-        sprites_set_enemy_slime_animation(enemy_sprite);
-    } else {
-        lv_obj_add_flag(enemy_sprite, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(enemy_shadow, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(enemy_name_label, "---");
-        lv_bar_set_value(enemy_hp_bar, 100, LV_ANIM_OFF);
+    if (strcmp(ui_cache.name, snap->pet.name) != 0) {
+        strncpy(ui_cache.name, snap->pet.name, PET_NAME_MAX_LEN - 1);
+        ui_cache.name[PET_NAME_MAX_LEN - 1] = '\0';
+        ui_dirty_flags |= UI_DIRTY_NAME;
     }
 
-    if (snap->state < 7) {
-        lv_label_set_text(combat_log_label, state_str[snap->state]);
+    if (ui_cache.level != snap->pet.level) {
+        ui_cache.level = snap->pet.level;
+        ui_dirty_flags |= UI_DIRTY_LEVEL;
+    }
+
+    if (ui_cache.hp != snap->pet.hp || ui_cache.hp_max != snap->pet.hp_max) {
+        ui_cache.hp = snap->pet.hp;
+        ui_cache.hp_max = snap->pet.hp_max;
+        ui_dirty_flags |= UI_DIRTY_HP;
+    }
+
+    if (ui_cache.energy != snap->pet.energy || ui_cache.energy_max != snap->pet.energy_max) {
+        ui_cache.energy = snap->pet.energy;
+        ui_cache.energy_max = snap->pet.energy_max;
+        ui_dirty_flags |= UI_DIRTY_ENERGY;
+    }
+
+    if (ui_cache.dp != snap->pet.dp) {
+        ui_cache.dp = snap->pet.dp;
+        ui_dirty_flags |= UI_DIRTY_DP;
+    }
+
+    if (ui_cache.exp != snap->pet.exp || ui_cache.exp_next != snap->pet.exp_next) {
+        ui_cache.exp = snap->pet.exp;
+        ui_cache.exp_next = snap->pet.exp_next;
+        ui_dirty_flags |= UI_DIRTY_EXP;
+    }
+
+    if (ui_cache.profession != snap->pet.profession) {
+        ui_cache.profession = snap->pet.profession;
+        ui_dirty_flags |= UI_DIRTY_PROFESSION;
+    }
+
+    if (ui_cache.stats[0] != snap->pet.str || ui_cache.stats[1] != snap->pet.dex ||
+        ui_cache.stats[2] != snap->pet.con || ui_cache.stats[3] != snap->pet.intel ||
+        ui_cache.stats[4] != snap->pet.wis || ui_cache.stats[5] != snap->pet.cha) {
+        ui_cache.stats[0] = snap->pet.str;
+        ui_cache.stats[1] = snap->pet.dex;
+        ui_cache.stats[2] = snap->pet.con;
+        ui_cache.stats[3] = snap->pet.intel;
+        ui_cache.stats[4] = snap->pet.wis;
+        ui_cache.stats[5] = snap->pet.cha;
+        ui_dirty_flags |= UI_DIRTY_STATS;
+    }
+
+    if (ui_cache.state != snap->state) {
+        ui_cache.state = snap->state;
+        ui_dirty_flags |= UI_DIRTY_STATE;
+    }
+
+    bool enemy_visible = (snap->encounter.count > 0 && snap->encounter.enemies[0].alive);
+    if (ui_cache.enemy_visible != enemy_visible) {
+        ui_cache.enemy_visible = enemy_visible;
+        ui_dirty_flags |= UI_DIRTY_ENEMY_HP | UI_DIRTY_ENEMY_NAME;
+    }
+
+    if (enemy_visible) {
+        enemy_t *enemy = &snap->encounter.enemies[0];
+        if (strcmp(ui_cache.enemy_name, enemy->name) != 0) {
+            strncpy(ui_cache.enemy_name, enemy->name, ENEMY_NAME_MAX_LEN - 1);
+            ui_cache.enemy_name[ENEMY_NAME_MAX_LEN - 1] = '\0';
+            ui_dirty_flags |= UI_DIRTY_ENEMY_NAME;
+        }
+        if (ui_cache.enemy_hp != enemy->hp || ui_cache.enemy_hp_max != enemy->hp_max) {
+            ui_cache.enemy_hp = enemy->hp;
+            ui_cache.enemy_hp_max = enemy->hp_max;
+            ui_dirty_flags |= UI_DIRTY_ENEMY_HP;
+        }
+    }
+
+    if (ui_dirty_flags == 0) {
+        return;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_NAME) {
+        lv_label_set_text(pet_name_label, ui_cache.name);
+        ui_dirty_flags &= ~UI_DIRTY_NAME;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_LEVEL) {
+        lv_snprintf(buf, sizeof(buf), "Lv%d", ui_cache.level);
+        lv_label_set_text(level_label, buf);
+        ui_dirty_flags &= ~UI_DIRTY_LEVEL;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_HP) {
+        uint8_t hp_pct = ui_cache.hp_max > 0 ? (ui_cache.hp * 100) / ui_cache.hp_max : 0;
+        lv_snprintf(buf, sizeof(buf), "HP%d%%", hp_pct);
+        lv_label_set_text(hp_label, buf);
+        ui_dirty_flags &= ~UI_DIRTY_HP;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_ENERGY) {
+        uint8_t en_pct = ui_cache.energy_max > 0 ? (ui_cache.energy * 100) / ui_cache.energy_max : 0;
+        lv_snprintf(buf, sizeof(buf), "EN%d%%", en_pct);
+        lv_label_set_text(energy_label, buf);
+        ui_dirty_flags &= ~UI_DIRTY_ENERGY;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_DP) {
+        lv_snprintf(buf, sizeof(buf), "DP%lu", (unsigned long)ui_cache.dp);
+        lv_label_set_text(dp_label, buf);
+        ui_dirty_flags &= ~UI_DIRTY_DP;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_EXP) {
+        uint8_t xp_pct = ui_cache.exp_next > 0 ? (ui_cache.exp * 100) / ui_cache.exp_next : 0;
+        lv_snprintf(buf, sizeof(buf), "XP%d%%", xp_pct);
+        lv_label_set_text(exp_label, buf);
+        ui_dirty_flags &= ~UI_DIRTY_EXP;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_PROFESSION) {
+        const char *prof_name = (ui_cache.profession < 4) ? prof_str[ui_cache.profession] : "???";
+        lv_label_set_text(profession_label, prof_name);
+        ui_dirty_flags &= ~UI_DIRTY_PROFESSION;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_STATS) {
+        lv_snprintf(buf, sizeof(buf), " %2d %2d %2d %2d %2d %2d",
+            ui_cache.stats[0], ui_cache.stats[1], ui_cache.stats[2],
+            ui_cache.stats[3], ui_cache.stats[4], ui_cache.stats[5]);
+        lv_label_set_text(stats_row, buf);
+        ui_dirty_flags &= ~UI_DIRTY_STATS;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_STATE) {
+        if (ui_cache.state < 7) {
+            lv_label_set_text(combat_log_label, state_str[ui_cache.state]);
+        }
+        ui_dirty_flags &= ~UI_DIRTY_STATE;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_ENEMY_NAME) {
+        if (ui_cache.enemy_visible) {
+            lv_label_set_text(enemy_name_label, ui_cache.enemy_name);
+        } else {
+            lv_label_set_text(enemy_name_label, "---");
+        }
+        ui_dirty_flags &= ~UI_DIRTY_ENEMY_NAME;
+    }
+
+    if (ui_dirty_flags & UI_DIRTY_ENEMY_HP) {
+        if (ui_cache.enemy_visible) {
+            lv_obj_clear_flag(enemy_sprite, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(enemy_shadow, LV_OBJ_FLAG_HIDDEN);
+            int16_t hp_pct = ui_cache.enemy_hp_max > 0 ? (ui_cache.enemy_hp * 100) / ui_cache.enemy_hp_max : 0;
+            lv_bar_set_value(enemy_hp_bar, hp_pct, LV_ANIM_ON);
+            sprites_set_enemy_slime_animation(enemy_sprite);
+        } else {
+            lv_obj_add_flag(enemy_sprite, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(enemy_shadow, LV_OBJ_FLAG_HIDDEN);
+            lv_bar_set_value(enemy_hp_bar, 100, LV_ANIM_OFF);
+        }
+        ui_dirty_flags &= ~UI_DIRTY_ENEMY_HP;
     }
 }
 

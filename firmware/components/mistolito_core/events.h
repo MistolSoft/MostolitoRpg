@@ -22,7 +22,11 @@ typedef enum {
     EVT_TARGET_SELECTED,
     EVT_ROUND_END,
     EVT_ANIMATION_START,
-    EVT_ANIMATION_COMPLETE
+    EVT_ANIMATION_COMPLETE,
+
+    EVT_COMBAT_START,
+    EVT_TURN_READY,
+    EVT_COMBAT_END
 } event_type_e;
 
 typedef struct {
@@ -62,6 +66,12 @@ typedef struct {
         struct {
             uint32_t duration_ms;
         } animation;
+
+        struct {
+            bool victory;
+            uint32_t exp_gained;
+            uint8_t enemies_killed;
+        } combat_end;
     } data;
 } game_event_t;
 

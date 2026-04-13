@@ -1,5 +1,6 @@
 #include "animation_loops.h"
 #include "screens.h"
+#include "game_coordinator.h"
 #include "mistolito.h"
 #include "esp_log.h"
 #include <string.h>
@@ -71,36 +72,21 @@ void anim_loops_process_event(game_event_t *evt)
     memset(&visual_evt, 0, sizeof(visual_evt));
 
     switch (evt->type) {
-        case EVT_STATE_CHANGED:
-            visual_evt.type = VISUAL_EVT_STATE_CHANGE;
-            visual_evt.data.new_state = evt->data.new_state;
-            break;
+    case EVT_STATE_CHANGED:
+        visual_evt.type = VISUAL_EVT_STATE_CHANGE;
+        visual_evt.data.new_state = evt->data.new_state;
+        break;
 
-        case EVT_PLAYER_ATTACK:
-            visual_evt.type = VISUAL_EVT_PLAYER_ATTACK;
-            visual_evt.data.player_attack.damage = evt->data.attack.damage;
-            visual_evt.data.player_attack.hit = evt->data.attack.hit;
-            visual_evt.data.player_attack.target_idx = evt->data.attack.target_idx;
-            break;
+    case EVT_ENEMY_SPAWNED:
+        visual_evt.type = VISUAL_EVT_ENEMY_SPAWNED;
+        break;
 
-        case EVT_ENEMY_ATTACK:
-            visual_evt.type = VISUAL_EVT_ENEMY_ATTACK;
-            visual_evt.data.enemy_attack.enemy_idx = evt->data.enemy_attack.enemy_idx;
-            visual_evt.data.enemy_attack.damage = evt->data.enemy_attack.damage;
-            visual_evt.data.enemy_attack.hit = evt->data.enemy_attack.hit;
-            break;
+    case EVT_LEVEL_UP:
+        visual_evt.type = VISUAL_EVT_VICTORY;
+        break;
 
-        case EVT_VICTORY:
-            visual_evt.type = VISUAL_EVT_VICTORY;
-            visual_evt.data.exp_amount = evt->data.exp.amount;
-            break;
-
-        case EVT_ENEMY_SPAWNED:
-            visual_evt.type = VISUAL_EVT_ENEMY_SPAWNED;
-            break;
-
-        default:
-            return;
+    default:
+        return;
     }
 
     event_queue_push(&visual_evt);
@@ -112,57 +98,36 @@ void anim_loops_process_event(game_event_t *evt)
 static void process_visual_event(visual_event_t *evt)
 {
     switch (evt->type) {
-        case VISUAL_EVT_STATE_CHANGE:
-            switch (evt->data.new_state) {
-                case GS_SEARCHING:
-                    s_pending_state = VISUAL_SEARCHING;
-                    break;
-                case GS_COMBAT:
-                    s_pending_state = VISUAL_COMBAT_IDLE;
-                    break;
-                case GS_VICTORY:
-                    s_pending_state = VISUAL_VICTORY;
-                    break;
-                case GS_RESTING:
-                    s_pending_state = VISUAL_RESTING;
-                    break;
-                case GS_DEAD:
-                    s_pending_state = VISUAL_DEAD;
-                    break;
-                default:
-                    break;
-            }
-            screens_clear_damage_popup();
-            screens_clear_exp_popup();
+    case VISUAL_EVT_STATE_CHANGE:
+        switch (evt->data.new_state) {
+        case GS_SEARCHING:
+            s_pending_state = VISUAL_SEARCHING;
             break;
-
-        case VISUAL_EVT_PLAYER_ATTACK:
-            if (evt->data.player_attack.hit) {
-                s_pending_state = VISUAL_COMBAT_PLAYER_ATTACK;
-                s_pending_damage = evt->data.player_attack.damage;
-                s_animation_busy = true;
-            } else {
-                screens_show_miss();
-            }
+        case GS_COMBAT:
+            s_pending_state = VISUAL_COMBAT_IDLE;
             break;
-
-        case VISUAL_EVT_ENEMY_ATTACK:
-            if (evt->data.enemy_attack.hit) {
-                s_pending_state = VISUAL_COMBAT_ENEMY_ATTACK;
-                s_animation_busy = true;
-            }
+        case GS_VICTORY:
+            s_pending_state = VISUAL_VICTORY;
             break;
-
-        case VISUAL_EVT_VICTORY:
-            screens_show_exp_popup(evt->data.exp_amount);
+        case GS_RESTING:
+            s_pending_state = VISUAL_RESTING;
             break;
-
-        case VISUAL_EVT_ENEMY_SPAWNED:
-            screens_set_enemy_animation(0);
+        case GS_DEAD:
+            s_pending_state = VISUAL_DEAD;
             break;
-
         default:
             break;
+        }
+        screens_clear_damage_popup();
+        screens_clear_exp_popup();
+        break;
+
+    case VISUAL_EVT_ENEMY_SPAWNED:
+        screens_set_enemy_animation(0);
+        break;
+
+    default:
+        break;
     }
 }
 
@@ -172,44 +137,62 @@ void anim_loops_tick(void)
         s_current_state = s_pending_state;
 
         switch (s_current_state) {
-            case VISUAL_IDLE:
-            case VISUAL_SEARCHING:
-                screens_set_pet_animation(0);
-                break;
-            case VISUAL_RESTING:
-                screens_set_pet_animation(0);
-                break;
-            case VISUAL_COMBAT_IDLE:
-                screens_set_pet_animation(0);
-                break;
-            case VISUAL_COMBAT_PLAYER_ATTACK:
-                screens_set_pet_animation(1);
-                screens_show_damage_popup(s_pending_damage, false);
-                break;
-            case VISUAL_COMBAT_ENEMY_ATTACK:
-                screens_set_pet_animation(2);
-                break;
-            case VISUAL_VICTORY:
-                screens_set_pet_animation(4);
-                break;
-            case VISUAL_DEAD:
-                screens_set_pet_animation(3);
-                break;
+        case VISUAL_IDLE:
+        case VISUAL_SEARCHING:
+            screens_set_pet_animation(0);
+            break;
+        case VISUAL_RESTING:
+            screens_set_pet_animation(0);
+            break;
+        case VISUAL_COMBAT_IDLE:
+            screens_set_pet_animation(0);
+            break;
+        case VISUAL_COMBAT_PLAYER_ATTACK:
+            screens_set_pet_animation(1);
+            screens_show_damage_popup(s_pending_damage, false);
+            break;
+        case VISUAL_COMBAT_ENEMY_ATTACK:
+            screens_set_pet_animation(2);
+            break;
+        case VISUAL_VICTORY:
+            screens_set_pet_animation(4);
+            break;
+        case VISUAL_DEAD:
+            screens_set_pet_animation(3);
+            break;
         }
         return;
     }
 
+    if (s_current_state == VISUAL_COMBAT_IDLE) {
+        combat_frame_result_t *result = game_coordinator_get_combat_result();
+        
+        if (result != NULL && result->new_data) {
+            if (result->pet_hit_this_frame && result->pet_damage_this_frame > 0) {
+                screens_show_damage_popup(result->pet_damage_this_frame, false);
+            } else if (!result->pet_hit_this_frame) {
+                screens_show_miss();
+            }
+
+            result->new_data = false;
+
+            ESP_LOGD(TAG, "Combat data: pet_dmg=%d, enemy_dmg=%d, turns=%d",
+                result->pet_damage_this_frame, result->enemy_damage_this_frame, result->turns_this_frame);
+            return;
+        }
+    }
+
     switch (s_current_state) {
-        case VISUAL_COMBAT_PLAYER_ATTACK:
-        case VISUAL_COMBAT_ENEMY_ATTACK:
-            s_animation_busy = false;
-            s_pending_state = VISUAL_COMBAT_IDLE;
-            break;
-        case VISUAL_VICTORY:
-            s_pending_state = VISUAL_SEARCHING;
-            break;
-        default:
-            break;
+    case VISUAL_COMBAT_PLAYER_ATTACK:
+    case VISUAL_COMBAT_ENEMY_ATTACK:
+        s_animation_busy = false;
+        s_pending_state = VISUAL_COMBAT_IDLE;
+        break;
+    case VISUAL_VICTORY:
+        s_pending_state = VISUAL_SEARCHING;
+        break;
+    default:
+        break;
     }
 
     if (!s_animation_busy && s_event_queue_count > 0) {

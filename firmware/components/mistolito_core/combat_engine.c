@@ -1,6 +1,7 @@
 #include "combat_engine.h"
 #include "rules.h"
 #include "storage_task.h"
+#include "dna_engine.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include <string.h>
@@ -212,26 +213,40 @@ void combat_engine_reset_pet_on_death(pet_t *pet)
 
     uint32_t saved_dp = pet->dp;
 
+    dna_t saved_dna;
+    memcpy(&saved_dna, &pet->dna, sizeof(dna_t));
+
     memset(pet, 0, sizeof(pet_t));
 
     memcpy(pet->name, saved_name, PET_NAME_MAX_LEN - 1);
     pet->name[PET_NAME_MAX_LEN - 1] = '\0';
-    
+
     pet->dp = saved_dp;
-    
+
+    memcpy(&pet->dna, &saved_dna, sizeof(dna_t));
+
+    pet->dna.salt = esp_random();
+
+    dna_generate_hash(&pet->dna);
+
+    uint8_t stats[DNA_STAT_COUNT];
+    dna_derive_all_stats(&pet->dna, stats);
+
+    pet->str = stats[STAT_STR];
+    pet->dex = stats[STAT_DEX];
+    pet->con = stats[STAT_CON];
+    pet->intel = stats[STAT_INT];
+    pet->wis = stats[STAT_WIS];
+    pet->cha = stats[STAT_CHA];
+
     pet->level = 1;
     pet->hp_max = BASE_PET_HP;
-    pet->hp = BASE_PET_HP;
+    pet->hp = pet->hp_max;
     pet->energy = MAX_ENERGY;
     pet->energy_max = MAX_ENERGY;
-    pet->str = 10;
-    pet->dex = 10;
-    pet->con = 10;
-    pet->intel = 10;
-    pet->wis = 10;
-    pet->cha = 10;
     pet->profession = PROF_NONE;
     pet->is_alive = true;
 
-    ESP_LOGI(TAG, "Pet resurrected: %s (DP preserved: %lu)", pet->name, (unsigned long)pet->dp);
+    ESP_LOGI(TAG, "Pet resurrected: %s (DP=%lu) STR=%d DEX=%d CON=%d INT=%d WIS=%d CHA=%d",
+        pet->name, (unsigned long)pet->dp, pet->str, pet->dex, pet->con, pet->intel, pet->wis, pet->cha);
 }
