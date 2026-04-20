@@ -7,6 +7,8 @@
 typedef enum {
     SCREEN_INIT,
     SCREEN_GAME,
+    SCREEN_REST,
+    SCREEN_DEATH,
     SCREEN_COUNT
 } screen_id_e;
 
@@ -22,5 +24,8 @@ void screens_show_exp_popup(uint32_t exp);
 void screens_clear_exp_popup(void);
 void screens_set_pet_animation(int anim_type);
 void screens_set_enemy_animation(int anim_type);
+void screens_show_rest_hp_popup(int16_t hp);
+void screens_show_rest_en_popup(int16_t en);
+void screens_clear_rest_popups(void);
 
 #endif

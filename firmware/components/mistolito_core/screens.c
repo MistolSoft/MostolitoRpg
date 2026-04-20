@@ -16,7 +16,7 @@ static const char *TAG = "SCREENS";
 #define UI_ENEMY_X 220
 #define UI_ENEMY_Y 60
 
-static lv_obj_t *screens[2] = {NULL, NULL};
+static lv_obj_t *screens[4] = {NULL, NULL, NULL, NULL};
 static screen_id_e current_screen = SCREEN_INIT;
 
 static lv_obj_t *lbl_init_title = NULL;
@@ -46,6 +46,23 @@ static lv_obj_t *stats_header = NULL;
 static lv_obj_t *stats_row = NULL;
 
 static lv_style_t style_box;
+
+static lv_obj_t *death_gameover_label = NULL;
+static lv_obj_t *death_resurrect_label = NULL;
+
+static lv_obj_t *rest_bg = NULL;
+static lv_obj_t *rest_pet_sprite = NULL;
+static lv_obj_t *rest_hp_popup = NULL;
+static lv_obj_t *rest_en_popup = NULL;
+static lv_obj_t *rest_stats_bg = NULL;
+static lv_obj_t *rest_name_label = NULL;
+static lv_obj_t *rest_level_label = NULL;
+static lv_obj_t *rest_hp_label = NULL;
+static lv_obj_t *rest_en_label = NULL;
+
+#define REST_PET_X 124
+#define REST_PET_Y 30
+#define REST_STATS_Y 160
 
 static const char* state_str[] = {"INIT", "SEARCHING", "COMBAT", "VICTORY", "LEVELUP", "RESTING", "DEAD"};
 static const char* prof_str[] = {"NOV", "WAR", "MAG", "ROG"};
@@ -262,18 +279,107 @@ static void create_game_screen(void)
     ESP_LOGI(TAG, "GAME screen created");
 }
 
+static void create_death_screen(void)
+{
+    screens[SCREEN_DEATH] = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screens[SCREEN_DEATH], lv_color_black(), 0);
+
+    death_gameover_label = lv_label_create(screens[SCREEN_DEATH]);
+    lv_obj_set_style_text_color(death_gameover_label, lv_color_hex(0xF800), 0);
+    lv_obj_set_style_text_font(death_gameover_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(death_gameover_label, 70, 95);
+    lv_label_set_text(death_gameover_label, "GAME OVER");
+
+    death_resurrect_label = lv_label_create(screens[SCREEN_DEATH]);
+    lv_obj_set_style_text_color(death_resurrect_label, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(death_resurrect_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(death_resurrect_label, 110, 135);
+    lv_label_set_text(death_resurrect_label, "(resucitando...)");
+
+    ESP_LOGI(TAG, "DEATH screen created");
+}
+
+static void create_rest_screen(void)
+{
+    screens[SCREEN_REST] = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screens[SCREEN_REST], lv_color_hex(0x1A1A2E), 0);
+
+    lv_obj_t *scr = screens[SCREEN_REST];
+
+    rest_bg = lv_obj_create(scr);
+    lv_obj_set_size(rest_bg, LCD_WIDTH, REST_STATS_Y);
+    lv_obj_set_pos(rest_bg, 0, 0);
+    lv_obj_set_style_bg_color(rest_bg, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_border_width(rest_bg, 0, 0);
+    lv_obj_set_style_radius(rest_bg, 0, 0);
+    lv_obj_clear_flag(rest_bg, LV_OBJ_FLAG_SCROLLABLE);
+
+    rest_pet_sprite = lv_animimg_create(rest_bg);
+    lv_obj_set_size(rest_pet_sprite, 72, 97);
+    lv_obj_set_pos(rest_pet_sprite, REST_PET_X, REST_PET_Y);
+    sprites_set_idle_animation(rest_pet_sprite);
+
+    rest_hp_popup = lv_label_create(rest_bg);
+    lv_label_set_text(rest_hp_popup, "");
+    lv_obj_set_style_text_color(rest_hp_popup, lv_color_hex(0x07E0), 0);
+    lv_obj_set_style_text_font(rest_hp_popup, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(rest_hp_popup, REST_PET_X - 10, REST_PET_Y - 25);
+    lv_obj_add_flag(rest_hp_popup, LV_OBJ_FLAG_HIDDEN);
+
+    rest_en_popup = lv_label_create(rest_bg);
+    lv_label_set_text(rest_en_popup, "");
+    lv_obj_set_style_text_color(rest_en_popup, lv_color_hex(0x07FF), 0);
+    lv_obj_set_style_text_font(rest_en_popup, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(rest_en_popup, REST_PET_X - 10, REST_PET_Y - 10);
+    lv_obj_add_flag(rest_en_popup, LV_OBJ_FLAG_HIDDEN);
+
+    rest_stats_bg = lv_obj_create(scr);
+    lv_obj_set_size(rest_stats_bg, LCD_WIDTH, 80);
+    lv_obj_set_pos(rest_stats_bg, 0, REST_STATS_Y);
+    lv_obj_add_style(rest_stats_bg, &style_box, 0);
+    lv_obj_clear_flag(rest_stats_bg, LV_OBJ_FLAG_SCROLLABLE);
+
+    rest_name_label = lv_label_create(rest_stats_bg);
+    lv_label_set_text(rest_name_label, "Mistolito");
+    lv_obj_set_style_text_color(rest_name_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(rest_name_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(rest_name_label, 5, 2);
+
+    rest_level_label = lv_label_create(rest_stats_bg);
+    lv_label_set_text(rest_level_label, "Lv1");
+    lv_obj_set_style_text_color(rest_level_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(rest_level_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(rest_level_label, 90, 2);
+
+    rest_hp_label = lv_label_create(rest_stats_bg);
+    lv_label_set_text(rest_hp_label, "HP100%");
+    lv_obj_set_style_text_color(rest_hp_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(rest_hp_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(rest_hp_label, 5, 20);
+
+    rest_en_label = lv_label_create(rest_stats_bg);
+    lv_label_set_text(rest_en_label, "EN100%");
+    lv_obj_set_style_text_color(rest_en_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(rest_en_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(rest_en_label, 65, 20);
+
+    ESP_LOGI(TAG, "REST screen created");
+}
+
 void screens_init(void)
 {
     init_styles();
     sprites_init();
     create_init_screen();
     create_game_screen();
+    create_rest_screen();
+    create_death_screen();
     ESP_LOGI(TAG, "All screens initialized");
 }
 
 void screens_load(screen_id_e id)
 {
-    if (id >= sizeof(screens) / sizeof(screens[0]) || screens[id] == NULL) {
+    if (id >= SCREEN_COUNT || screens[id] == NULL) {
         ESP_LOGE(TAG, "Invalid screen id: %d", id);
         return;
     }
@@ -288,6 +394,87 @@ void screens_update(game_snapshot_t *snap)
     static char buf[64];
 
     if (current_screen == SCREEN_INIT || snap == NULL) {
+        return;
+    }
+
+    if (ui_cache.state != snap->state) {
+        ui_cache.state = snap->state;
+        ui_dirty_flags |= UI_DIRTY_STATE;
+
+        switch (snap->state) {
+        case GS_DEAD:
+            screens_load(SCREEN_DEATH);
+            break;
+        case GS_RESTING:
+            screens_load(SCREEN_REST);
+            break;
+        case GS_COMBAT:
+        case GS_VICTORY:
+        case GS_LEVELUP:
+            if (current_screen != SCREEN_GAME) {
+                screens_load(SCREEN_GAME);
+            }
+            break;
+        case GS_SEARCHING:
+            if (current_screen != SCREEN_GAME) {
+                screens_load(SCREEN_GAME);
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    if (current_screen == SCREEN_REST) {
+        if (strcmp(ui_cache.name, snap->pet.name) != 0) {
+            strncpy(ui_cache.name, snap->pet.name, PET_NAME_MAX_LEN - 1);
+            ui_cache.name[PET_NAME_MAX_LEN - 1] = '\0';
+            ui_dirty_flags |= UI_DIRTY_NAME;
+        }
+        if (ui_cache.level != snap->pet.level) {
+            ui_cache.level = snap->pet.level;
+            ui_dirty_flags |= UI_DIRTY_LEVEL;
+        }
+        if (ui_cache.hp != snap->pet.hp || ui_cache.hp_max != snap->pet.hp_max) {
+            ui_cache.hp = snap->pet.hp;
+            ui_cache.hp_max = snap->pet.hp_max;
+            ui_dirty_flags |= UI_DIRTY_HP;
+        }
+        if (ui_cache.energy != snap->pet.energy || ui_cache.energy_max != snap->pet.energy_max) {
+            ui_cache.energy = snap->pet.energy;
+            ui_cache.energy_max = snap->pet.energy_max;
+            ui_dirty_flags |= UI_DIRTY_ENERGY;
+        }
+
+        if (ui_dirty_flags == 0) {
+            return;
+        }
+
+        if (ui_dirty_flags & UI_DIRTY_NAME) {
+            lv_label_set_text(rest_name_label, ui_cache.name);
+            ui_dirty_flags &= ~UI_DIRTY_NAME;
+        }
+        if (ui_dirty_flags & UI_DIRTY_LEVEL) {
+            lv_snprintf(buf, sizeof(buf), "Lv%d", ui_cache.level);
+            lv_label_set_text(rest_level_label, buf);
+            ui_dirty_flags &= ~UI_DIRTY_LEVEL;
+        }
+        if (ui_dirty_flags & UI_DIRTY_HP) {
+            uint8_t hp_pct = ui_cache.hp_max > 0 ? (ui_cache.hp * 100) / ui_cache.hp_max : 0;
+            lv_snprintf(buf, sizeof(buf), "HP%d%%", hp_pct);
+            lv_label_set_text(rest_hp_label, buf);
+            ui_dirty_flags &= ~UI_DIRTY_HP;
+        }
+        if (ui_dirty_flags & UI_DIRTY_ENERGY) {
+            uint8_t en_pct = ui_cache.energy_max > 0 ? (ui_cache.energy * 100) / ui_cache.energy_max : 0;
+            lv_snprintf(buf, sizeof(buf), "EN%d%%", en_pct);
+            lv_label_set_text(rest_en_label, buf);
+            ui_dirty_flags &= ~UI_DIRTY_ENERGY;
+        }
+        return;
+    }
+
+    if (current_screen == SCREEN_DEATH) {
         return;
     }
 
@@ -340,11 +527,6 @@ void screens_update(game_snapshot_t *snap)
         ui_cache.stats[4] = snap->pet.wis;
         ui_cache.stats[5] = snap->pet.cha;
         ui_dirty_flags |= UI_DIRTY_STATS;
-    }
-
-    if (ui_cache.state != snap->state) {
-        ui_cache.state = snap->state;
-        ui_dirty_flags |= UI_DIRTY_STATE;
     }
 
     bool enemy_visible = (snap->encounter.count > 0 && snap->encounter.enemies[0].alive);
@@ -502,47 +684,75 @@ void screens_clear_exp_popup(void)
 void screens_set_pet_animation(int anim_type)
 {
     switch (anim_type) {
-        case 0:
-            sprites_set_idle_animation(pet_sprite);
-            break;
-        case 1:
-            sprites_set_attack_animation(pet_sprite);
-            break;
-        case 2:
-            sprites_set_hit_animation(pet_sprite);
-            break;
-        case 3:
-            sprites_set_death_animation(pet_sprite);
-            break;
-        case 4:
-            sprites_set_levelup_animation(pet_sprite);
-            break;
-        default:
-            sprites_set_idle_animation(pet_sprite);
-            break;
+    case 0:
+        sprites_set_idle_animation(pet_sprite);
+        if (rest_pet_sprite) sprites_set_idle_animation(rest_pet_sprite);
+        break;
+    case 1:
+        sprites_set_attack_animation(pet_sprite);
+        break;
+    case 2:
+        sprites_set_hit_animation(pet_sprite);
+        break;
+    case 3:
+        sprites_set_death_animation(pet_sprite);
+        if (rest_pet_sprite) sprites_set_death_animation(rest_pet_sprite);
+        break;
+    case 4:
+        sprites_set_levelup_animation(pet_sprite);
+        if (rest_pet_sprite) sprites_set_levelup_animation(rest_pet_sprite);
+        break;
+    default:
+        sprites_set_idle_animation(pet_sprite);
+        if (rest_pet_sprite) sprites_set_idle_animation(rest_pet_sprite);
+        break;
     }
 }
 
 void screens_set_enemy_animation(int anim_type)
 {
     switch (anim_type) {
-        case 0:
-            sprites_set_enemy_slime_animation(enemy_sprite);
-            break;
-        case 1:
-            sprites_set_enemy_fish_animation(enemy_sprite);
-            break;
-        case 2:
-            sprites_set_enemy_fly_animation(enemy_sprite);
-            break;
-        case 3:
-            sprites_set_enemy_blocker_animation(enemy_sprite);
-            break;
-        case 4:
-            sprites_set_enemy_poker_animation(enemy_sprite);
-            break;
-        default:
-            sprites_set_enemy_slime_animation(enemy_sprite);
-            break;
+    case 0:
+        sprites_set_enemy_slime_animation(enemy_sprite);
+        break;
+    case 1:
+        sprites_set_enemy_fish_animation(enemy_sprite);
+        break;
+    case 2:
+        sprites_set_enemy_fly_animation(enemy_sprite);
+        break;
+    case 3:
+        sprites_set_enemy_blocker_animation(enemy_sprite);
+        break;
+    case 4:
+        sprites_set_enemy_poker_animation(enemy_sprite);
+        break;
+    default:
+        sprites_set_enemy_slime_animation(enemy_sprite);
+        break;
     }
+}
+
+void screens_show_rest_hp_popup(int16_t hp)
+{
+    if (hp <= 0) return;
+    static char buf[16];
+    lv_snprintf(buf, sizeof(buf), "+%d HP", hp);
+    lv_label_set_text(rest_hp_popup, buf);
+    lv_obj_clear_flag(rest_hp_popup, LV_OBJ_FLAG_HIDDEN);
+}
+
+void screens_show_rest_en_popup(int16_t en)
+{
+    if (en <= 0) return;
+    static char buf[16];
+    lv_snprintf(buf, sizeof(buf), "+%d EN", en);
+    lv_label_set_text(rest_en_popup, buf);
+    lv_obj_clear_flag(rest_en_popup, LV_OBJ_FLAG_HIDDEN);
+}
+
+void screens_clear_rest_popups(void)
+{
+    lv_obj_add_flag(rest_hp_popup, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(rest_en_popup, LV_OBJ_FLAG_HIDDEN);
 }

@@ -622,49 +622,61 @@ case GS_LEVELUP:
     }
     break;
 
-case GS_RESTING:
-{
-    bool hp_recovering = rest_tick_hp(&g_snapshot.pet, &g_snapshot.rest);
-    bool energy_recovering = rest_tick_energy(&g_snapshot.pet, &g_snapshot.rest);
+        case GS_RESTING:
+        {
+            int16_t hp_rec = rest_tick_hp(&g_snapshot.pet, &g_snapshot.rest);
+            int16_t en_rec = rest_tick_energy(&g_snapshot.pet, &g_snapshot.rest);
 
-    g_rest_result.hp_recovered = hp_recovering ? 1 : 0;
-    g_rest_result.energy_recovered = energy_recovering ? 1 : 0;
-    g_rest_result.new_data = true;
+            g_rest_result.hp_recovered += hp_rec;
+            g_rest_result.energy_recovered += en_rec;
+            g_rest_result.new_data = true;
 
-    g_snapshot.pet.dirty_flags |= PET_DIRTY_HP | PET_DIRTY_ENERGY;
+            g_snapshot.pet.dirty_flags |= PET_DIRTY_HP | PET_DIRTY_ENERGY;
 
-if (!hp_recovering && !energy_recovering) {
-rest_finish(&g_snapshot.pet);
-g_snapshot.pet.dirty_flags |= PET_DIRTY_RESOURCES;
-storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-g_snapshot.pet.dirty_flags = 0;
+            bool hp_done = (g_snapshot.rest.hp_ticks_remaining == 0);
+            bool en_done = (g_snapshot.rest.energy_ticks_remaining == 0);
 
-g_rest_result.rest_ended = true;
-g_rest_result.new_data = true;
+            if (hp_done && en_done) {
+                rest_finish(&g_snapshot.pet);
+                g_snapshot.pet.dirty_flags |= PET_DIRTY_RESOURCES;
+                storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+                g_snapshot.pet.dirty_flags = 0;
 
-transition_to(GS_SEARCHING);
-} else {
-taskYIELD();
-}
-}
+                g_rest_result.rest_ended = true;
+                g_rest_result.new_data = true;
+
+                transition_to(GS_SEARCHING);
+            } else {
+                taskYIELD();
+            }
+        }
 break;
 
-case GS_DEAD:
-    ESP_LOGI(TAG, "Pet died! Resetting...");
-    if (g_snapshot_mutex && xSemaphoreTake(g_snapshot_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        combat_engine_reset_pet_on_death(&g_snapshot.pet);
-        storage_apply_profession_data(&g_snapshot.pet, PROF_NONE);
-        g_snapshot.pet.exp_next = calc_exp_for_level(1);
-        g_snapshot.pet.dirty_flags = 0xFF;
-        xSemaphoreGive(g_snapshot_mutex);
-    }
-    storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
-    g_snapshot.pet.dirty_flags = 0;
-    g_search_start_ms = 0;
-    transition_to(GS_SEARCHING);
-    break;
+        case GS_DEAD:
+        {
+            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+            uint32_t elapsed = now - g_snapshot.state_entered_ms;
+            if (elapsed < 3000) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                break;
+            }
 
-            default:
+            ESP_LOGI(TAG, "Pet died! Resetting...");
+            if (g_snapshot_mutex && xSemaphoreTake(g_snapshot_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                combat_engine_reset_pet_on_death(&g_snapshot.pet);
+                storage_apply_profession_data(&g_snapshot.pet, PROF_NONE);
+                g_snapshot.pet.exp_next = calc_exp_for_level(1);
+                g_snapshot.pet.dirty_flags = 0xFF;
+                xSemaphoreGive(g_snapshot_mutex);
+            }
+            storage_save_pet_delta(g_snapshot.pet.dirty_flags, &g_snapshot.pet);
+            g_snapshot.pet.dirty_flags = 0;
+            g_search_start_ms = 0;
+            transition_to(GS_SEARCHING);
+            break;
+        }
+
+        default:
                 transition_to(GS_INIT);
                 break;
         }

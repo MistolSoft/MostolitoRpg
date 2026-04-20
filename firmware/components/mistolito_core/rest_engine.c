@@ -40,50 +40,54 @@ void rest_init(rest_state_t *rest, pet_t *pet)
              rest->hp_ticks_total, rest->energy_ticks_total);
 }
 
-bool rest_tick_hp(pet_t *pet, rest_state_t *rest)
+int16_t rest_tick_hp(pet_t *pet, rest_state_t *rest)
 {
     if (rest->hp_ticks_remaining == 0) {
-        return false;
+        return 0;
     }
-    
+
     rest->hp_ticks_remaining--;
-    
+
+    int16_t recovered = 0;
     if (rules_random_chance(pet->rest.recovery_chance)) {
         uint16_t recovery = (uint16_t)(((uint32_t)pet->hp_max * REST_RECOVERY_PERCENT) / 100);
         if (recovery < 1) recovery = 1;
-        
+
         pet->hp += (int16_t)recovery;
         if (pet->hp > pet->hp_max) {
             pet->hp = pet->hp_max;
         }
-        
+
+        recovered = (int16_t)recovery;
         ESP_LOGI(TAG, "HP recovered: +%d (now %d/%d)", recovery, pet->hp, pet->hp_max);
     }
-    
-    return rest->hp_ticks_remaining > 0;
+
+    return recovered;
 }
 
-bool rest_tick_energy(pet_t *pet, rest_state_t *rest)
+int16_t rest_tick_energy(pet_t *pet, rest_state_t *rest)
 {
     if (rest->energy_ticks_remaining == 0) {
-        return false;
+        return 0;
     }
-    
+
     rest->energy_ticks_remaining--;
-    
+
+    int16_t recovered = 0;
     if (rules_random_chance(pet->rest.recovery_chance)) {
         uint8_t recovery = (uint8_t)(((uint32_t)pet->energy_max * REST_RECOVERY_PERCENT) / 100);
         if (recovery < 1) recovery = 1;
-        
+
         pet->energy += recovery;
         if (pet->energy > pet->energy_max) {
             pet->energy = pet->energy_max;
         }
-        
+
+        recovered = (int16_t)recovery;
         ESP_LOGI(TAG, "Energy recovered: +%d (now %d/%d)", recovery, pet->energy, pet->energy_max);
     }
-    
-    return rest->energy_ticks_remaining > 0;
+
+    return recovered;
 }
 
 void rest_finish(pet_t *pet)

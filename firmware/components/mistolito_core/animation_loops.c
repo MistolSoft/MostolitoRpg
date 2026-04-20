@@ -120,6 +120,7 @@ static void process_visual_event(visual_event_t *evt)
         }
         screens_clear_damage_popup();
         screens_clear_exp_popup();
+        screens_clear_rest_popups();
         break;
 
     case VISUAL_EVT_ENEMY_SPAWNED:
@@ -166,7 +167,7 @@ void anim_loops_tick(void)
 
     if (s_current_state == VISUAL_COMBAT_IDLE) {
         combat_frame_result_t *result = game_coordinator_get_combat_result();
-        
+
         if (result != NULL && result->new_data) {
             if (result->pet_hit_this_frame && result->pet_damage_this_frame > 0) {
                 screens_show_damage_popup(result->pet_damage_this_frame, false);
@@ -176,8 +177,28 @@ void anim_loops_tick(void)
 
             result->new_data = false;
 
-            ESP_LOGD(TAG, "Combat data: pet_dmg=%d, enemy_dmg=%d, turns=%d",
-                result->pet_damage_this_frame, result->enemy_damage_this_frame, result->turns_this_frame);
+            ESP_LOGD(TAG, "Combat data: pet_dmg=%d, enemy_dmg=%d, turns=%d",  result->pet_damage_this_frame, result->enemy_damage_this_frame, result->turns_this_frame);
+            return;
+        }
+    }
+
+    if (s_current_state == VISUAL_RESTING) {
+        rest_frame_result_t *result = game_coordinator_get_rest_result();
+
+        if (result != NULL && result->new_data) {
+            screens_clear_rest_popups();
+            if (result->hp_recovered > 0) {
+                screens_show_rest_hp_popup(result->hp_recovered);
+            }
+            if (result->energy_recovered > 0) {
+                screens_show_rest_en_popup(result->energy_recovered);
+            }
+
+            if (result->rest_ended) {
+                screens_clear_rest_popups();
+            }
+
+        game_coordinator_clear_rest_result();
             return;
         }
     }
