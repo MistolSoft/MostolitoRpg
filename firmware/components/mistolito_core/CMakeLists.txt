@@ -48,6 +48,9 @@ SRCS
 "dna_engine.c"
 "profession_engine.c"
 "skills_perks_engine.c"
+"resources_engine.c"
+"features_engine.c"
+"spell_engine.c"
 ${SPRITE_PLAYER_SRCS}
 ${SPRITE_ENEMY_SRCS}
 INCLUDE_DIRS "."

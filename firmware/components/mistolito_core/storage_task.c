@@ -97,12 +97,53 @@ case STORAGE_OP_SAVE_PET_DELTA:
             for (uint8_t i = 0; i < req.pet->perk_count; i++) {
                 if (i > 0) fprintf(f, ",");
                 fprintf(f, "{\"id\":%d}", req.pet->perks[i].id);
-            }
-            fprintf(f, "]");
+}
+fprintf(f, "]");
 
-            fprintf(f, "}\n");
-            fclose(f);
-            ESP_LOGI(TAG, "Pet saved (dirty=0x%04X)", req.dirty_flags);
+fprintf(f, ",\"spell_slots\":[");
+for (uint8_t i = 0; i < 9; i++) {
+if (i > 0) fprintf(f, ",");
+fprintf(f, "%d", req.pet->spell_slots.slots[i]);
+}
+fprintf(f, "]");
+
+fprintf(f, ",\"spell_slots_max\":[");
+for (uint8_t i = 0; i < 9; i++) {
+if (i > 0) fprintf(f, ",");
+fprintf(f, "%d", req.pet->spell_slots_max[i]);
+}
+fprintf(f, "]");
+
+fprintf(f, ",\"spells_known\":[");
+for (uint8_t i = 0; i < req.pet->spells_known_count; i++) {
+if (i > 0) fprintf(f, ",");
+fprintf(f, "{\"id\":\"%s\",\"level\":%d}", req.pet->spells_known[i].id, req.pet->spells_known[i].level);
+}
+fprintf(f, "]");
+
+fprintf(f, ",\"cantrips_known\":%d,\"cantrips_max\":%d", req.pet->cantrips_known, req.pet->cantrips_max);
+
+fprintf(f, ",\"action_surge_uses\":%d,\"action_surge_max\":%d", req.pet->action_surge_uses, req.pet->action_surge_max);
+fprintf(f, ",\"indomitable_uses\":%d,\"indomitable_max\":%d", req.pet->indomitable_uses, req.pet->indomitable_max);
+fprintf(f, ",\"second_wind_uses\":%d", req.pet->second_wind_uses);
+fprintf(f, ",\"superiority_dice\":%d,\"superiority_dice_max\":%d,\"superiority_dice_size\":%d",
+req.pet->superiority_dice, req.pet->superiority_dice_max, req.pet->superiority_dice_size);
+fprintf(f, ",\"sneak_attack_dice\":%d", req.pet->sneak_attack_dice);
+fprintf(f, ",\"arcane_recovery_used\":%d", req.pet->arcane_recovery_used);
+
+fprintf(f, ",\"maneuvers\":[");
+        for (uint8_t i = 0; i < req.pet->maneuver_count; i++) {
+            if (i > 0) fprintf(f, ",");
+            fprintf(f, "{\"id\":%d}", req.pet->maneuvers[i].maneuver_id);
+        }
+        fprintf(f, "]");
+
+fprintf(f, ",\"ability_points\":%d,\"ability_points_max\":%d", req.pet->ability_points, req.pet->ability_points_max);
+
+fprintf(f, "}");
+
+fclose(f);
+ESP_LOGI(TAG, "Pet saved (dirty=0x%04X)", req.dirty_flags);
         }
     }
     break;
@@ -161,22 +202,88 @@ if ((item = cJSON_GetObjectItem(root, "dice_count"))) req.pet->combat.dice_count
         }
     }
 
-    cJSON *perks_arr = cJSON_GetObjectItem(root, "perks");
-    if (perks_arr && cJSON_IsArray(perks_arr)) {
-        cJSON *perk_item = NULL;
-        cJSON_ArrayForEach(perk_item, perks_arr) {
-            if (req.pet->perk_count < MAX_PERKS) {
-                cJSON *id_item = cJSON_GetObjectItem(perk_item, "id");
-                if (id_item) {
-                    req.pet->perks[req.pet->perk_count].id = (uint8_t)id_item->valueint;
-                    req.pet->perk_count++;
-                }
-            }
-        }
-    }
+cJSON *perks_arr = cJSON_GetObjectItem(root, "perks");
+if (perks_arr && cJSON_IsArray(perks_arr)) {
+cJSON *perk_item = NULL;
+cJSON_ArrayForEach(perk_item, perks_arr) {
+if (req.pet->perk_count < MAX_PERKS) {
+cJSON *id_item = cJSON_GetObjectItem(perk_item, "id");
+if (id_item) {
+req.pet->perks[req.pet->perk_count].id = (uint8_t)id_item->valueint;
+req.pet->perk_count++;
+}
+}
+}
+}
 
-    cJSON_Delete(root);
-    ESP_LOGI(TAG, "Pet loaded: %s Lv.%d (skills=%d, perks=%d)", req.pet->name, req.pet->level, req.pet->skill_count, req.pet->perk_count);
+cJSON *spell_slots_arr = cJSON_GetObjectItem(root, "spell_slots");
+if (spell_slots_arr && cJSON_IsArray(spell_slots_arr)) {
+uint8_t idx = 0;
+cJSON *slot_item = NULL;
+cJSON_ArrayForEach(slot_item, spell_slots_arr) {
+if (idx < 9) req.pet->spell_slots.slots[idx++] = (uint8_t)slot_item->valueint;
+}
+}
+
+cJSON *spell_slots_max_arr = cJSON_GetObjectItem(root, "spell_slots_max");
+if (spell_slots_max_arr && cJSON_IsArray(spell_slots_max_arr)) {
+uint8_t idx = 0;
+cJSON *slot_item = NULL;
+cJSON_ArrayForEach(slot_item, spell_slots_max_arr) {
+if (idx < 9) req.pet->spell_slots_max[idx++] = (uint8_t)slot_item->valueint;
+}
+}
+
+cJSON *spells_known_arr = cJSON_GetObjectItem(root, "spells_known");
+if (spells_known_arr && cJSON_IsArray(spells_known_arr)) {
+cJSON *spell_item = NULL;
+cJSON_ArrayForEach(spell_item, spells_known_arr) {
+if (req.pet->spells_known_count < MAX_SPELLS_KNOWN) {
+cJSON *id_item = cJSON_GetObjectItem(spell_item, "id");
+cJSON *level_item = cJSON_GetObjectItem(spell_item, "level");
+if (id_item) {
+strncpy(req.pet->spells_known[req.pet->spells_known_count].id, id_item->valuestring, sizeof(req.pet->spells_known[0].id) - 1);
+req.pet->spells_known[req.pet->spells_known_count].level = level_item ? (uint8_t)level_item->valueint : 0;
+req.pet->spells_known_count++;
+}
+}
+}
+}
+
+if ((item = cJSON_GetObjectItem(root, "cantrips_known"))) req.pet->cantrips_known = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "cantrips_max"))) req.pet->cantrips_max = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "action_surge_uses"))) req.pet->action_surge_uses = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "action_surge_max"))) req.pet->action_surge_max = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "indomitable_uses"))) req.pet->indomitable_uses = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "indomitable_max"))) req.pet->indomitable_max = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "second_wind_uses"))) req.pet->second_wind_uses = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "superiority_dice"))) req.pet->superiority_dice = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "superiority_dice_max"))) req.pet->superiority_dice_max = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "superiority_dice_size"))) req.pet->superiority_dice_size = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "sneak_attack_dice"))) req.pet->sneak_attack_dice = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "arcane_recovery_used"))) req.pet->arcane_recovery_used = item->valueint;
+
+cJSON *maneuvers_arr = cJSON_GetObjectItem(root, "maneuvers");
+                if (maneuvers_arr && cJSON_IsArray(maneuvers_arr)) {
+                    cJSON *maneuver_item = NULL;
+                    cJSON_ArrayForEach(maneuver_item, maneuvers_arr) {
+                        if (req.pet->maneuver_count < MAX_MANEUVERS_KNOWN) {
+                            cJSON *id_item = cJSON_GetObjectItem(maneuver_item, "id");
+                            if (id_item) {
+                                req.pet->maneuvers[req.pet->maneuver_count].maneuver_id = (uint8_t)id_item->valueint;
+                                req.pet->maneuver_count++;
+                            }
+                        }
+                    }
+                }
+
+if ((item = cJSON_GetObjectItem(root, "ability_points"))) req.pet->ability_points = item->valueint;
+                if ((item = cJSON_GetObjectItem(root, "ability_points_max"))) req.pet->ability_points_max = item->valueint;
+
+cJSON_Delete(root);
+ESP_LOGI(TAG, "Pet loaded: %s Lv.%d (skills=%d, perks=%d, spells=%d, maneuvers=%d)", 
+req.pet->name, req.pet->level, req.pet->skill_count, req.pet->perk_count,
+req.pet->spells_known_count, req.pet->maneuver_count);
 }
 }
 }
@@ -268,19 +375,88 @@ if (skills_arr && cJSON_IsArray(skills_arr)) {
 
 cJSON *perks_arr = cJSON_GetObjectItem(root, "perks");
 if (perks_arr && cJSON_IsArray(perks_arr)) {
-    cJSON *perk_item = NULL;
-    cJSON_ArrayForEach(perk_item, perks_arr) {
-        if (pet->perk_count < MAX_PERKS) {
-            cJSON *id_item = cJSON_GetObjectItem(perk_item, "id");
-            if (id_item) {
-                pet->perks[pet->perk_count].id = (uint8_t)id_item->valueint;
-                pet->perk_count++;
+cJSON *perk_item = NULL;
+cJSON_ArrayForEach(perk_item, perks_arr) {
+if (pet->perk_count < MAX_PERKS) {
+cJSON *id_item = cJSON_GetObjectItem(perk_item, "id");
+if (id_item) {
+pet->perks[pet->perk_count].id = (uint8_t)id_item->valueint;
+pet->perk_count++;
+}
+}
+}
+}
+
+cJSON *spell_slots_arr = cJSON_GetObjectItem(root, "spell_slots");
+if (spell_slots_arr && cJSON_IsArray(spell_slots_arr)) {
+uint8_t idx = 0;
+cJSON *slot_item = NULL;
+cJSON_ArrayForEach(slot_item, spell_slots_arr) {
+if (idx < 9) {
+pet->spell_slots.slots[idx++] = (uint8_t)slot_item->valueint;
+}
+}
+}
+
+cJSON *spell_slots_max_arr = cJSON_GetObjectItem(root, "spell_slots_max");
+if (spell_slots_max_arr && cJSON_IsArray(spell_slots_max_arr)) {
+uint8_t idx = 0;
+cJSON *slot_item = NULL;
+cJSON_ArrayForEach(slot_item, spell_slots_max_arr) {
+if (idx < 9) {
+pet->spell_slots_max[idx++] = (uint8_t)slot_item->valueint;
+}
+}
+}
+
+cJSON *spells_known_arr = cJSON_GetObjectItem(root, "spells_known");
+if (spells_known_arr && cJSON_IsArray(spells_known_arr)) {
+cJSON *spell_item = NULL;
+cJSON_ArrayForEach(spell_item, spells_known_arr) {
+if (pet->spells_known_count < MAX_SPELLS_KNOWN) {
+cJSON *id_item = cJSON_GetObjectItem(spell_item, "id");
+cJSON *level_item = cJSON_GetObjectItem(spell_item, "level");
+if (id_item) {
+strncpy(pet->spells_known[pet->spells_known_count].id, id_item->valuestring, sizeof(pet->spells_known[0].id) - 1);
+pet->spells_known[pet->spells_known_count].id[sizeof(pet->spells_known[0].id) - 1] = '\0';
+pet->spells_known[pet->spells_known_count].level = level_item ? (uint8_t)level_item->valueint : 0;
+pet->spells_known_count++;
+}
+}
+}
+}
+
+if ((item = cJSON_GetObjectItem(root, "cantrips_known"))) pet->cantrips_known = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "cantrips_max"))) pet->cantrips_max = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "action_surge_uses"))) pet->action_surge_uses = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "action_surge_max"))) pet->action_surge_max = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "indomitable_uses"))) pet->indomitable_uses = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "indomitable_max"))) pet->indomitable_max = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "second_wind_uses"))) pet->second_wind_uses = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "superiority_dice"))) pet->superiority_dice = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "superiority_dice_max"))) pet->superiority_dice_max = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "superiority_dice_size"))) pet->superiority_dice_size = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "sneak_attack_dice"))) pet->sneak_attack_dice = item->valueint;
+if ((item = cJSON_GetObjectItem(root, "arcane_recovery_used"))) pet->arcane_recovery_used = item->valueint;
+
+cJSON *maneuvers_arr = cJSON_GetObjectItem(root, "maneuvers");
+    if (maneuvers_arr && cJSON_IsArray(maneuvers_arr)) {
+        cJSON *maneuver_item = NULL;
+        cJSON_ArrayForEach(maneuver_item, maneuvers_arr) {
+            if (pet->maneuver_count < MAX_MANEUVERS_KNOWN) {
+                cJSON *id_item = cJSON_GetObjectItem(maneuver_item, "id");
+                if (id_item) {
+                    pet->maneuvers[pet->maneuver_count].maneuver_id = (uint8_t)id_item->valueint;
+                    pet->maneuver_count++;
+                }
             }
         }
     }
-}
 
-    uint32_t saved_salt = 0;
+if ((item = cJSON_GetObjectItem(root, "ability_points"))) pet->ability_points = item->valueint;
+    if ((item = cJSON_GetObjectItem(root, "ability_points_max"))) pet->ability_points_max = item->valueint;
+
+uint32_t saved_salt = 0;
     if ((item = cJSON_GetObjectItem(root, "dna_salt"))) saved_salt = (uint32_t)item->valueint;
 
     pet->energy_max = MAX_ENERGY;
@@ -503,33 +679,39 @@ bool storage_get_enemy_data(uint8_t enemy_id, uint8_t pet_level, enemy_t *enemy)
             cJSON *hp_per_level = cJSON_GetObjectItem(enemy_data, "hp_per_level");
             cJSON *base_ac = cJSON_GetObjectItem(enemy_data, "base_ac");
             cJSON *ac_per_level = cJSON_GetObjectItem(enemy_data, "ac_per_level");
-            cJSON *damage_dice = cJSON_GetObjectItem(enemy_data, "damage_dice");
-            cJSON *damage_bonus = cJSON_GetObjectItem(enemy_data, "damage_bonus");
-            cJSON *attack_bonus = cJSON_GetObjectItem(enemy_data, "attack_bonus");
-            cJSON *exp_base = cJSON_GetObjectItem(enemy_data, "exp_base");
-            cJSON *exp_per_level = cJSON_GetObjectItem(enemy_data, "exp_per_level");
+cJSON *damage_dice = cJSON_GetObjectItem(enemy_data, "damage_dice");
+cJSON *damage_bonus = cJSON_GetObjectItem(enemy_data, "damage_bonus");
+cJSON *damage_per_level = cJSON_GetObjectItem(enemy_data, "damage_per_level");
+cJSON *attack_bonus = cJSON_GetObjectItem(enemy_data, "attack_bonus");
+cJSON *exp_base = cJSON_GetObjectItem(enemy_data, "exp_base");
+cJSON *exp_per_level = cJSON_GetObjectItem(enemy_data, "exp_per_level");
 
-            if (name) strncpy(enemy->name, name->valuestring, ENEMY_NAME_MAX_LEN - 1);
-            else snprintf(enemy->name, ENEMY_NAME_MAX_LEN, "Enemy%d", enemy_id);
-            enemy->name[ENEMY_NAME_MAX_LEN - 1] = '\0';
+if (name) strncpy(enemy->name, name->valuestring, ENEMY_NAME_MAX_LEN - 1);
+else snprintf(enemy->name, ENEMY_NAME_MAX_LEN, "Enemy%d", enemy_id);
+enemy->name[ENEMY_NAME_MAX_LEN - 1] = '\0';
 
-            uint16_t hp_base = base_hp ? base_hp->valueint : 20;
-            uint16_t hp_pl = hp_per_level ? hp_per_level->valueint : 10;
-            enemy->hp_max = hp_base + (pet_level * hp_pl);
-            enemy->hp = enemy->hp_max;
+uint16_t hp_base = base_hp ? base_hp->valueint : 20;
+uint16_t hp_pl = hp_per_level ? hp_per_level->valueint : 10;
+enemy->hp_max = hp_base + (pet_level * hp_pl);
+enemy->hp = enemy->hp_max;
 
-            uint8_t ac_base = base_ac ? base_ac->valueint : 10;
-            uint8_t ac_pl = ac_per_level ? ac_per_level->valueint : 0;
-            enemy->ac = ac_base + ((pet_level / 5) * ac_pl);
-            if (enemy->ac > 20) enemy->ac = 20;
+uint8_t ac_base = base_ac ? base_ac->valueint : 10;
+uint8_t ac_pl = ac_per_level ? ac_per_level->valueint : 0;
+enemy->ac = ac_base + ((pet_level / 5) * ac_pl);
+if (enemy->ac > 20) enemy->ac = 20;
 
-            enemy->damage_dice = damage_dice ? damage_dice->valueint : 6;
-            enemy->damage_bonus = damage_bonus ? damage_bonus->valueint : 0;
-            enemy->attack_bonus = attack_bonus ? attack_bonus->valueint : 0;
+enemy->damage_dice = damage_dice ? damage_dice->valueint : 6;
+enemy->damage_bonus = damage_bonus ? damage_bonus->valueint : 0;
+uint8_t dmg_pl = damage_per_level ? damage_per_level->valueint : 0;
+enemy->damage_bonus += (pet_level / 5) * dmg_pl;
 
-            uint16_t exp_b = exp_base ? exp_base->valueint : 20;
-            uint16_t exp_pl = exp_per_level ? exp_per_level->valueint : 5;
-            enemy->exp_reward = exp_b + (pet_level * exp_pl);
+enemy->attack_bonus = attack_bonus ? attack_bonus->valueint : 0;
+
+uint16_t avg_damage = (enemy->damage_dice / 2) + 1 + enemy->damage_bonus;
+uint16_t exp_from_stats = (enemy->hp_max * enemy->ac * avg_damage) / 20;
+uint16_t exp_b = exp_base ? exp_base->valueint : 20;
+uint16_t exp_pl = exp_per_level ? exp_per_level->valueint : 5;
+enemy->exp_reward = exp_b + (pet_level * exp_pl) + exp_from_stats;
 
             enemy->level = pet_level;
             enemy->alive = true;

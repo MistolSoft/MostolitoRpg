@@ -1,5 +1,6 @@
 #include "rest_engine.h"
 #include "rules.h"
+#include "resources_engine.h"
 #include "esp_log.h"
 #include "esp_random.h"
 
@@ -83,4 +84,10 @@ bool rest_tick_energy(pet_t *pet, rest_state_t *rest)
     }
     
     return rest->energy_ticks_remaining > 0;
+}
+
+void rest_finish(pet_t *pet)
+{
+resources_recover_long_rest(pet);
+ESP_LOGI(TAG, "Long rest completed - all resources recovered");
 }

@@ -2,11 +2,147 @@
 #include "rules.h"
 #include "storage_task.h"
 #include "dna_engine.h"
+#include "resources_engine.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include <string.h>
 
 static const char *TAG = "COMBAT";
+
+static uint8_t roll_d20(void)
+{
+    return (esp_random() % 20) + 1;
+}
+
+static int16_t calculate_sneak_attack_damage(pet_t *pet)
+{
+    if (pet->profession != PROF_ROGUE) return 0;
+    if (pet->sneak_attack_dice == 0) return 0;
+
+    bool has_advantage = (esp_random() % 100) < 40;
+    if (!has_advantage) return 0;
+
+    return rules_roll_multiple(pet->sneak_attack_dice, 6);
+}
+
+static bool try_use_superiority_die(pet_t *pet, int16_t *damage)
+{
+    if (pet->superiority_dice == 0) return false;
+    if (pet->superiority_dice_size == 0) return false;
+
+    pet->superiority_dice--;
+    uint8_t die_result = rules_roll_dice(pet->superiority_dice_size);
+    *damage += die_result;
+    ESP_LOGI(TAG, "Superiority die used: +%d damage (remaining: %d)", die_result, pet->superiority_dice);
+    return true;
+}
+
+static bool try_second_wind(pet_t *pet)
+{
+if (pet->profession != PROF_WARRIOR) return false;
+if (pet->second_wind_uses == 0) return false;
+if (pet->hp >= pet->hp_max / 2) return false;
+
+pet->second_wind_uses--;
+uint8_t heal = rules_roll_dice(10) + pet->profession_level;
+pet->hp += heal;
+if (pet->hp > pet->hp_max) pet->hp = pet->hp_max;
+
+ESP_LOGI(TAG, "Second Wind: healed %d HP (uses remaining: %d)", heal, pet->second_wind_uses);
+return true;
+}
+
+void combat_engine_roll_initiative(pet_t *pet, enemy_t *enemy, combat_state_t *combat)
+{
+int8_t pet_dex_mod = rules_get_modifier(pet->dex);
+int8_t enemy_dex_mod = (enemy->dex_save > 0) ? (enemy->dex_save - 10) / 2 : 0;
+
+combat->pet_initiative = (int8_t)roll_d20() + pet_dex_mod;
+combat->enemy_initiative = (int8_t)roll_d20() + enemy_dex_mod;
+
+combat->pet_goes_first = (combat->pet_initiative >= combat->enemy_initiative);
+
+ESP_LOGI(TAG, "Initiative: Pet=%d (d20+%d) vs Enemy=%d (d20+%d) -> %s goes first",
+combat->pet_initiative, pet_dex_mod,
+combat->enemy_initiative, enemy_dex_mod,
+combat->pet_goes_first ? "Pet" : "Enemy");
+}
+
+bool combat_engine_saving_throw(pet_t *pet, uint8_t save_type, uint8_t dc)
+{
+int8_t mod = 0;
+const char *save_name = "";
+
+switch (save_type) {
+case STAT_STR:
+mod = rules_get_modifier(pet->str);
+save_name = "STR";
+break;
+case STAT_DEX:
+mod = rules_get_modifier(pet->dex);
+save_name = "DEX";
+break;
+case STAT_CON:
+mod = rules_get_modifier(pet->con);
+save_name = "CON";
+break;
+case STAT_INT:
+mod = rules_get_modifier(pet->intel);
+save_name = "INT";
+break;
+case STAT_WIS:
+mod = rules_get_modifier(pet->wis);
+save_name = "WIS";
+break;
+case STAT_CHA:
+mod = rules_get_modifier(pet->cha);
+save_name = "CHA";
+break;
+}
+
+uint8_t roll = roll_d20();
+int8_t total = (int8_t)roll + mod;
+bool success = (total >= (int8_t)dc);
+
+ESP_LOGI(TAG, "%s save: d20(%d) + %d = %d vs DC %d -> %s",
+save_name, roll, mod, total, dc, success ? "SUCCESS" : "FAIL");
+
+return success;
+}
+
+bool combat_engine_enemy_saving_throw(enemy_t *enemy, uint8_t save_type, uint8_t dc)
+{
+int8_t mod = 0;
+const char *save_name = "";
+
+switch (save_type) {
+case STAT_STR:
+mod = (enemy->str_save > 10) ? (enemy->str_save - 10) / 2 : 0;
+save_name = "STR";
+break;
+case STAT_DEX:
+mod = (enemy->dex_save > 10) ? (enemy->dex_save - 10) / 2 : 0;
+save_name = "DEX";
+break;
+case STAT_CON:
+mod = (enemy->con_save > 10) ? (enemy->con_save - 10) / 2 : 0;
+save_name = "CON";
+break;
+default:
+mod = 0;
+save_name = "UNK";
+break;
+}
+
+uint8_t roll = roll_d20();
+int8_t total = (int8_t)roll + mod;
+bool success = (total >= (int8_t)dc);
+
+ESP_LOGI(TAG, "Enemy %s save: d20(%d) + %d = %d vs DC %d -> %s",
+save_name, roll, mod, total, dc, success ? "SUCCESS" : "FAIL");
+
+return success;
+}
 
 void combat_engine_init(combat_state_t *combat)
 {
@@ -64,57 +200,62 @@ uint8_t combat_engine_calc_enemy_ac(uint8_t pet_level)
 
 void combat_engine_player_attack(pet_t *pet, enemy_t *target, combat_state_t *combat)
 {
-    int8_t dex_mod = rules_get_modifier(pet->dex);
-    int16_t attack_roll = (int16_t)rules_roll_d20() + dex_mod;
+int8_t dex_mod = rules_get_modifier(pet->dex);
+int16_t attack_roll = (int16_t)rules_roll_d20() + dex_mod;
 
-    if (attack_roll >= target->ac) {
-        uint8_t base_damage = 0;
-        uint8_t dice_count = 3 + pet->bonuses.extra_dice;
+if (attack_roll >= target->ac) {
+int16_t base_damage = 0;
+uint8_t dice_count = 3 + pet->bonuses.extra_dice;
 
-        switch (pet->profession) {
-        case PROF_WARRIOR:
-            base_damage = rules_roll_multiple(dice_count, 6);
-            break;
-        case PROF_MAGE:
-            base_damage = rules_roll_multiple(1 + pet->bonuses.extra_dice, 20);
-            break;
-        case PROF_ROGUE: {
-            uint8_t crit_bonus = pet->bonuses.crit;
-            for (uint8_t i = 0; i < dice_count; i++) {
-                uint8_t d = rules_roll_dice(4);
-                if (rules_random_chance(15 + crit_bonus)) {
-                    d *= 2;
-                }
-                base_damage += d;
-            }
-            if (pet->bonuses.sneak_dice > 0) {
-                base_damage += rules_roll_multiple(pet->bonuses.sneak_dice, 6);
-            }
-            break;
-        }
-        default:
-            base_damage = rules_roll_multiple(pet->combat.dice_count, pet->combat.damage_dice) + pet->combat.damage_bonus;
-            break;
-        }
+switch (pet->profession) {
+case PROF_WARRIOR:
+base_damage = rules_roll_multiple(dice_count, 6);
+try_use_superiority_die(pet, &base_damage);
+break;
+case PROF_MAGE:
+base_damage = rules_roll_multiple(1 + pet->bonuses.extra_dice, 20);
+break;
+case PROF_ROGUE: {
+uint8_t crit_bonus = pet->bonuses.crit;
+for (uint8_t i = 0; i < dice_count; i++) {
+uint8_t d = rules_roll_dice(4);
+if (rules_random_chance(15 + crit_bonus)) {
+d *= 2;
+}
+base_damage += d;
+}
+int16_t sneak_damage = calculate_sneak_attack_damage(pet);
+if (sneak_damage > 0) {
+base_damage += sneak_damage;
+ESP_LOGI(TAG, "Sneak Attack: +%d damage", sneak_damage);
+}
+break;
+}
+default:
+base_damage = rules_roll_multiple(pet->combat.dice_count, pet->combat.damage_dice) + pet->combat.damage_bonus;
+break;
+}
 
-        int8_t str_mod = rules_get_modifier(pet->str);
-        int16_t damage = base_damage + str_mod + pet->bonuses.min_damage;
-        if (damage < 1) damage = 1;
+int8_t str_mod = rules_get_modifier(pet->str);
+int16_t damage = base_damage + str_mod + pet->bonuses.min_damage;
+if (damage < 1) damage = 1;
 
-        target->hp -= damage;
-        if (target->hp < 0) target->hp = 0;
+target->hp -= damage;
+if (target->hp < 0) target->hp = 0;
 
-        combat->last_player_damage = damage;
-        combat->player_hit = true;
-        combat->turn_count++;
+combat->last_player_damage = damage;
+combat->player_hit = true;
+combat->turn_count++;
 
-        if (target->hp <= 0) {
-            target->alive = false;
-        }
-    } else {
-        combat->last_player_damage = 0;
-        combat->player_hit = false;
-    }
+if (target->hp <= 0) {
+target->alive = false;
+}
+} else {
+combat->last_player_damage = 0;
+combat->player_hit = false;
+}
+
+try_second_wind(pet);
 }
 
 void combat_engine_enemy_attack(enemy_t *enemy, pet_t *pet, combat_state_t *combat)

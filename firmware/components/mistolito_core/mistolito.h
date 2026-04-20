@@ -45,6 +45,8 @@
 
 #define MAX_STATUS_EFFECTS 8
 #define MAX_PERKS 16
+#define MAX_SPELLS_KNOWN 32
+#define MAX_MANEUVERS_KNOWN 16
 
 #define STATUS_NONE      0
 #define STATUS_POISON    (1 << 0)
@@ -83,10 +85,25 @@ typedef struct {
 } perk_t;
 
 typedef struct {
-    uint8_t skill_id;
-    uint8_t uses_remaining;
-    uint8_t uses_max;
+uint8_t skill_id;
+uint8_t uses_remaining;
+uint8_t uses_max;
 } pet_skill_t;
+
+typedef struct {
+char id[32];
+uint8_t level;
+} pet_spell_t;
+
+typedef struct {
+uint8_t maneuver_id;
+} pet_maneuver_t;
+
+#define MAX_ABILITY_POINTS 10
+
+typedef struct {
+uint8_t slots[9];
+} spell_slots_t;
 
 typedef enum {
     GS_INIT,
@@ -134,6 +151,9 @@ typedef enum {
 #define PET_DIRTY_PROF_LEVEL (1 << 8)
 #define PET_DIRTY_SKILLS (1 << 9)
 #define PET_DIRTY_PERKS (1 << 10)
+#define PET_DIRTY_SPELLS (1 << 11)
+#define PET_DIRTY_RESOURCES (1 << 12)
+#define PET_DIRTY_MANEUVERS (1 << 13)
 
 typedef struct {
     char name[PET_NAME_MAX_LEN];
@@ -161,25 +181,49 @@ typedef struct {
     pet_bonuses_t bonuses;
     status_effect_t status[MAX_STATUS_EFFECTS];
     uint8_t status_count;
-    perk_t perks[MAX_PERKS];
-    uint8_t perk_count;
-    pet_skill_t skills[MAX_SKILLS];
-    uint8_t skill_count;
-    uint16_t dirty_flags;
-    bool is_alive;
+perk_t perks[MAX_PERKS];
+uint8_t perk_count;
+pet_skill_t skills[MAX_SKILLS];
+uint8_t skill_count;
+spell_slots_t spell_slots;
+uint8_t spell_slots_max[9];
+pet_spell_t spells_known[MAX_SPELLS_KNOWN];
+uint8_t spells_known_count;
+uint8_t cantrips_known;
+uint8_t cantrips_max;
+pet_maneuver_t maneuvers[MAX_MANEUVERS_KNOWN];
+uint8_t maneuver_count;
+uint8_t superiority_dice;
+uint8_t superiority_dice_max;
+uint8_t superiority_dice_size;
+uint8_t action_surge_uses;
+uint8_t action_surge_max;
+uint8_t indomitable_uses;
+uint8_t indomitable_max;
+uint8_t second_wind_uses;
+uint8_t sneak_attack_dice;
+uint8_t arcane_recovery_used;
+uint8_t ability_points;
+uint8_t ability_points_max;
+uint16_t dirty_flags;
+bool is_alive;
 } pet_t;
 
 typedef struct {
-    char name[ENEMY_NAME_MAX_LEN];
-    int16_t hp;
-    int16_t hp_max;
-    uint8_t ac;
-    uint8_t attack_bonus;
-    uint8_t damage_dice;
-    uint8_t damage_bonus;
-    uint8_t level;
-    uint16_t exp_reward;
-    bool alive;
+char name[ENEMY_NAME_MAX_LEN];
+int16_t hp;
+int16_t hp_max;
+uint8_t ac;
+uint8_t attack_bonus;
+uint8_t damage_dice;
+uint8_t damage_bonus;
+uint8_t level;
+uint16_t exp_reward;
+int8_t initiative;
+uint8_t str_save;
+uint8_t dex_save;
+uint8_t con_save;
+bool alive;
 } enemy_t;
 
 typedef struct {
@@ -189,17 +233,20 @@ typedef struct {
 } encounter_t;
 
 typedef struct {
-    combat_phase_e phase;
-    uint8_t round;
-    uint8_t current_enemy_idx;
-    combat_action_e selected_action;
-    uint8_t selected_target_idx;
-    int16_t last_player_damage;
-    int16_t last_enemy_damage;
-    bool player_hit;
-    bool enemy_hit;
-    bool animation_active;
-    uint8_t turn_count;
+combat_phase_e phase;
+uint8_t round;
+uint8_t current_enemy_idx;
+combat_action_e selected_action;
+uint8_t selected_target_idx;
+int16_t last_player_damage;
+int16_t last_enemy_damage;
+bool player_hit;
+bool enemy_hit;
+bool animation_active;
+uint8_t turn_count;
+int8_t pet_initiative;
+int8_t enemy_initiative;
+bool pet_goes_first;
 } combat_state_t;
 
 typedef struct {

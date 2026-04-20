@@ -1,4 +1,5 @@
 #include "profession_engine.h"
+#include "rules.h"
 #include "storage_task.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -244,6 +245,66 @@ void profession_get_bonus_stats(pet_t *pet, uint8_t stats[STAT_COUNT], uint8_t *
     }
 
     cJSON_Delete(root);
+}
+
+void profession_apply_combat_stats(pet_t *pet)
+{
+if (pet == NULL || pet->profession == PROF_NONE) {
+return;
+}
+
+const char *json = storage_get_game_tables_json();
+if (!json) {
+return;
+}
+
+cJSON *root = cJSON_Parse(json);
+if (!root) {
+return;
+}
+
+cJSON *professions = cJSON_GetObjectItem(root, "professions");
+if (!professions) {
+cJSON_Delete(root);
+return;
+}
+
+cJSON *prof = NULL;
+cJSON_ArrayForEach(prof, professions) {
+cJSON *id_item = cJSON_GetObjectItem(prof, "id");
+if (id_item && id_item->valueint == pet->profession) {
+cJSON *hit_dice = cJSON_GetObjectItem(prof, "hit_dice");
+cJSON *hp_per_level = cJSON_GetObjectItem(prof, "hp_per_level");
+cJSON *ac_mod_stat = cJSON_GetObjectItem(prof, "ac_mod_stat");
+cJSON *damage_prog = cJSON_GetObjectItem(prof, "damage_progression");
+
+if (hit_dice && hp_per_level) {
+int8_t con_mod = rules_get_modifier(pet->con);
+uint16_t hp_gain = (uint16_t)hp_per_level->valueint + (con_mod > 0 ? con_mod : 0);
+pet->hp_max += hp_gain;
+ESP_LOGI(TAG, "HP gain: +%d (hit_dice=d%d, hp_per_level=%d, con_mod=%d)", 
+hp_gain, hit_dice->valueint, hp_per_level->valueint, con_mod);
+}
+
+if (damage_prog && cJSON_IsObject(damage_prog)) {
+char level_key[8];
+snprintf(level_key, sizeof(level_key), "%d", pet->profession_level);
+
+cJSON *level_entry = cJSON_GetObjectItem(damage_prog, level_key);
+if (level_entry) {
+cJSON *dice_count = cJSON_GetObjectItem(level_entry, "dice_count");
+if (dice_count) {
+pet->combat.dice_count = (uint8_t)dice_count->valueint;
+ESP_LOGI(TAG, "Dice count updated to %d", pet->combat.dice_count);
+}
+}
+}
+
+break;
+}
+}
+
+cJSON_Delete(root);
 }
 
 void profession_apply_level_bonuses(pet_t *pet, uint8_t profession_level)
